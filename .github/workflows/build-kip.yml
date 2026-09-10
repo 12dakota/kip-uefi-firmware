@@ -28,9 +28,12 @@ jobs:
 
       - name: Clone MrChromebox coreboot
         run: |
-          git clone --depth 1 https://github.com/MrChromebox/coreboot.git coreboot
+          git clone --filter=blob:none --recurse-submodules https://github.com/MrChromebox/coreboot.git coreboot
           cd coreboot
+          git fetch --tags --force
           git submodule update --init --checkout --recursive
+          # build-uefi.sh calls git describe --tags; fail soft if tags missing
+          sed -i 's/rev=$(git describe --tags --dirty)/rev=$(git describe --tags --dirty 2>\/dev\/null || git rev-parse --short HEAD)/' build-uefi.sh || true
 
       - name: Cache crossgcc
         uses: actions/cache@v4
