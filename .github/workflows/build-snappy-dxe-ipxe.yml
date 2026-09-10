@@ -1,0 +1,114 @@
+# Experimental SNAPPY: official wrapper + UefiPayload (network/PXE) + iPXE EFI + stub pointer DXE.
+# DXE does not drive the Elan pad. iPXE needs a NIC (USB adapter typical on SNAPPY).
+name: SNAPPY DXE stub + iPXE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib uuid-dev iasl nasm \
+            python3 python-is-python3 zlib1g-dev libssl-dev pkg-config git \
+            liblzma-dev isolinux
+      - name: Official snappy ROM
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" snappy-stock.rom
+      - name: Build iPXE UEFI
+        run: |
+          git clone --depth 1 https://github.com/ipxe/ipxe.git
+          make -C ipxe/src -j"$(nproc)" bin-x86_64-efi/ipxe.efi \
+            || make -C ipxe/src -j"$(nproc)" bin-x86_64-efi/snponly.efi
+          find ipxe/src/bin-x86_64-efi -name '*.efi' -exec ls -l {} \;
+          cp ipxe/src/bin-x86_64-efi/ipxe.efi ipxe.efi \
+            || cp ipxe/src/bin-x86_64-efi/snponly.efi ipxe.efi
+      - name: UefiPayload + pointer DXE + network
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
+          mkdir -p edk2/UefiPayloadPkg/CrosEcPointerDxe
+          cp drivers/CrosEcPointerDxe/CrosEcPointerDxe.c edk2/UefiPayloadPkg/CrosEcPointerDxe/
+          cp drivers/CrosEcPointerDxe/CrosEcPointerDxe.inf edk2/UefiPayloadPkg/CrosEcPointerDxe/
+          # DSC + FDF hook (best-effort; layout varies by edk2 rev)
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc; do
+            [ -f "$f" ] || continue
+            grep -q CrosEcPointerDxe "$f" || echo '  UefiPayloadPkg/CrosEcPointerDxe/CrosEcPointerDxe.inf' >> "$f"
+          done
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.fdf edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.fdf; do
+            [ -f "$f" ] || continue
+            grep -q CrosEcPointerDxe "$f" || \
+              printf '\nINF  UefiPayloadPkg/CrosEcPointerDxe/CrosEcPointerDxe.inf\n' >> "$f"
+          done
+          make -C edk2/BaseTools
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkg.dsc
+          [ -f UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc ] && DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC \
+            -D BOOTLOADER=COREBOOT \
+            -D NETWORK_DRIVER_ENABLE=TRUE \
+            -D NETWORK_ENABLE=TRUE \
+            -D NETWORK_PXE_BOOT_ENABLE=TRUE \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 \
+            -D BOOTLOADER=COREBOOT \
+            -D NETWORK_DRIVER_ENABLE=TRUE
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - name: cbfstool splice
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+          STOCK=$(stat -c '%s' snappy-stock.rom)
+          cp snappy-stock.rom EXPERIMENTAL-snappy-dxe-ipxe.rom
+          cbfstool EXPERIMENTAL-snappy-dxe-ipxe.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-snappy-dxe-ipxe.rom add-payload \
+            -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          cbfstool EXPERIMENTAL-snappy-dxe-ipxe.rom add -f ipxe.efi -n img/ipxe.efi -t raw || \
+          cbfstool EXPERIMENTAL-snappy-dxe-ipxe.rom add -f ipxe.efi -n ipxe.efi -t raw || true
+          test "$(stat -c '%s' EXPERIMENTAL-snappy-dxe-ipxe.rom)" -eq "$STOCK"
+          cat > README-FLASH.txt << 'R'
+          EXPERIMENTAL SNAPPY.
+          Payload: tianocore UefiPayload + network/PXE flags + stub CrosEcPointerDxe.
+          iPXE: ipxe.efi in CBFS (img/ipxe.efi). Boot Manager may not list CBFS files;
+          use a USB NIC and UEFI Network / PXE if the payload built with NETWORK_*.
+          Pointer DXE does not move the built-in pad. USB mouse still required.
+          Restore: snappy-stock.rom
+          R
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-dxe-ipxe
+          path: |
+            EXPERIMENTAL-snappy-dxe-ipxe.rom
+            snappy-stock.rom
+            UEFIPAYLOAD.fd
+            ipxe.efi
+            README-FLASH.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-dxe-ipxe-${{ github.run_id }}
+          prerelease: true
+          name: SNAPPY stub pointer DXE + iPXE (experimental)
+          body: Stub CrosEcPointerDxe + iPXE EFI in CBFS + NETWORK flags on UefiPayload. Not a working pad driver.
+          files: |
+            EXPERIMENTAL-snappy-dxe-ipxe.rom
+            snappy-stock.rom
+            ipxe.efi
+            README-FLASH.txt
