@@ -56,8 +56,9 @@ jobs:
           . ./edksetup.sh
           DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
           if [ ! -f "$DSC" ]; then DSC=UefiPayloadPkg/UefiPayloadPkg.dsc; fi
-          build -a IA32 -a X64 -p "$DSC" \
-            -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          echo "dsc=$DSC"
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
           FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
           test -n "$FD"
           cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
