@@ -1,0 +1,54 @@
+name: Mu/edk2 payload experiment (DO NOT FLASH ON KIP)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mu-payload:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev iasl nasm python3 python3-pip git gcc-multilib python-is-python3
+          pip3 install --user edk2-pytool-library edk2-pytool-extensions setuptools
+
+      - name: Clone Mu basecore + Tiano edk2
+        run: |
+          git clone --depth 1 https://github.com/microsoft/mu_basecore.git mu_basecore
+          git clone --depth 1 https://github.com/tianocore/edk2.git edk2
+          cd edk2 && git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+          echo "=== mu_basecore packages ==="
+          ls mu_basecore | head
+          echo "=== edk2 UefiPayloadPkg present? ==="
+          ls edk2/UefiPayloadPkg | head
+
+      - name: Build Tiano UefiPayload for COREBOOT
+        working-directory: edk2
+        run: |
+          make -C BaseTools
+          . ./edksetup.sh
+          build -a X64 -p UefiPayloadPkg/UefiPayloadPkg.dsc -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT || \
+          build -a IA32 -a X64 -p UefiPayloadPkg/UefiPayloadPkg.dsc -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+
+      - name: Collect
+        run: |
+          mkdir -p dist
+          echo "Experimental UEFI payload FD only." > dist/DO-NOT-FLASH-ON-KIP.txt
+          echo "This is not a full kip SPI image. Do not give it to firmware-util.sh." >> dist/DO-NOT-FLASH-ON-KIP.txt
+          echo "Mu has no kip platform; this build is Tiano UefiPayloadPkg (Mu-family) for coreboot integration tests." >> dist/DO-NOT-FLASH-ON-KIP.txt
+          find edk2/Build -name 'UEFIPAYLOAD.fd' -o -name 'UniversalPayload.elf' | tee /tmp/found.txt
+          find edk2/Build -name 'UEFIPAYLOAD.fd' -exec cp -v {} dist/ \;
+          find edk2/Build -name 'UniversalPayload.elf' -exec cp -v {} dist/ \; || true
+          ls -la dist
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mu-tiano-payload-NOT-KIP
+          path: dist/*
+          if-no-files-found: warn
