@@ -43,12 +43,12 @@ jobs:
             WH=$(identify -format '%w %h' old.bmp 2>/dev/null || true)
             if [ -n "$WH" ]; then W=$(echo "$WH" | awk '{print $1}'); H=$(echo "$WH" | awk '{print $2}'); fi
           fi
-          if [ -f assets/hp-logo.png ]; then
-            convert assets/hp-logo.png -resize "${W}x${H}" -background black \
+          if [ -f assets/acer-logo.png ]; then
+            convert assets/acer-logo.png -resize "${W}x${H}" -background black \
               -gravity center -extent "${W}x${H}" -type TrueColor -define bmp:format=bmp3 splash.bmp
           else
             convert -size "${W}x${H}" xc:black -gravity center -fill white \
-              -annotate 0 'HP' -type TrueColor -define bmp:format=bmp3 splash.bmp
+              -annotate 0 'acer' -type TrueColor -define bmp:format=bmp3 splash.bmp
           fi
           cbfstool banon-logo.rom remove -n "$NAME" || true
           cbfstool banon-logo.rom add -f splash.bmp -n "$NAME" -t raw
