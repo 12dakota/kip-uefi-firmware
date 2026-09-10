@@ -1,0 +1,28 @@
+# Drop this package into MrChromebox edk2 UefiPayloadPkg and add to DSC/FDF.
+[Defines]
+  INF_VERSION    = 0x00010006
+  BASE_NAME      = KipSetupApp
+  FILE_GUID      = 9b3c0e11-4a2f-4c6a-9e01-6b1f0000a001
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = KipSetupAppMain
+
+[Sources]
+  KipSetupApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  PrintLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid
+  gEfiSimplePointerProtocolGuid
+  gEfiSimpleTextInputExProtocolGuid
