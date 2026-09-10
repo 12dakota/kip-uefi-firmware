@@ -1,0 +1,68 @@
+# coreboot for QEMU/Limbo (i440fx). Not SNAPPY flash. Payload is Tiano UefiPayload, not SeaBIOS.
+name: Limbo coreboot (QEMU)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  qemu-coreboot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib iasl nasm \
+            python3 python-is-python3 uuid-dev zlib1g-dev libssl-dev pkg-config git
+      - name: UefiPayload
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
+          make -C edk2/BaseTools
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkg.dsc
+          test -f UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc && DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - name: coreboot QEMU board
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot || true
+          mkdir -p cb/payloads
+          cp UEFIPAYLOAD.fd cb/payloads/UEFIPAYLOAD.fd
+          printf '%s\n' \
+            'CONFIG_BOARD_EMULATION_QEMU_X86_I440FX=y' \
+            'CONFIG_ANY_TOOLCHAIN=y' \
+            'CONFIG_PAYLOAD_ELF=y' \
+            'CONFIG_PAYLOAD_FILE="payloads/UEFIPAYLOAD.fd"' \
+            'CONFIG_COMPRESSED_PAYLOAD_LZMA=y' \
+            > cb/.config
+          make -C cb olddefconfig
+          make -C cb -j"$(nproc)"
+          test -f cb/build/coreboot.rom
+          cp cb/build/coreboot.rom limbo-coreboot.rom
+          ls -l limbo-coreboot.rom
+          echo "Limbo: generic PC, import limbo-coreboot.rom as BIOS. Not a SNAPPY image." > README-LIMBO-COREBOOT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: limbo-coreboot-qemu
+          path: |
+            limbo-coreboot.rom
+            UEFIPAYLOAD.fd
+            README-LIMBO-COREBOOT.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: limbo-coreboot-${{ github.run_id }}
+          prerelease: true
+          name: Limbo QEMU coreboot + UefiPayload
+          body: coreboot emulation/qemu i440fx + Tianocore UefiPayload. Import as Limbo BIOS. Not SeaBIOS. Not SNAPPY.
+          files: |
+            limbo-coreboot.rom
+            README-LIMBO-COREBOOT.txt
