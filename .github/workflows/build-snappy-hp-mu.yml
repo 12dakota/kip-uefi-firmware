@@ -1,0 +1,184 @@
+# SNAPPY (Apollo Lake) official wrapper + COREBOOT UefiPayload splice
+# + HP splash + padded SMBIOS string replace.
+# Payload is tianocore UefiPayload + Mu PACKAGES_PATH, not FrontPage.
+# HP Chromebook 14 G5 is often SANTA, not SNAPPY — strings are cosmetic only.
+name: SNAPPY HP + Mu payload splice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stock:
+    name: Official snappy Full ROM
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" snappy-stock.rom
+          echo "size=$(stat -c '%s' snappy-stock.rom)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-stock-SAFE-FLASH
+          path: snappy-stock.rom
+
+  payload:
+    name: COREBOOT UefiPayload (Mu PACKAGES_PATH)
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev iasl nasm python3 \
+            python-is-python3 gcc-multilib uuid-runtime
+      - run: |
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_basecore.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_plus.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_tiano_plus.git
+      - uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2
+          path: edk2
+          fetch-depth: 1
+          submodules: recursive
+      - run: |
+          make -C edk2/BaseTools
+          export PACKAGES_PATH="$GITHUB_WORKSPACE/mu_basecore:$GITHUB_WORKSPACE/mu_plus:$GITHUB_WORKSPACE/mu_tiano_plus:$GITHUB_WORKSPACE/edk2"
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          if [ ! -f "$DSC" ]; then DSC=UefiPayloadPkg/UefiPayloadPkg.dsc; fi
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+          path: UEFIPAYLOAD.fd
+
+  splice:
+    name: Splice + HP splash + SMBIOS strings
+    needs: [stock, payload]
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
+            pkg-config python-is-python3 git imagemagick fonts-dejavu-core python3
+      - uses: actions/download-artifact@v4
+        with:
+          name: snappy-stock-SAFE-FLASH
+      - uses: actions/download-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+      - name: cbfstool
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+      - name: HP splash
+        run: |
+          convert -size 800x600 xc:black -gravity center \
+            -fill white -font DejaVu-Sans-Bold -pointsize 72 \
+            -annotate 0 'HP' \
+            -type TrueColor -define bmp:format=bmp3 splash.bmp
+      - name: Splice payload, splash, SMBIOS
+        run: |
+          set -euo pipefail
+          STOCK=$(stat -c '%s' snappy-stock.rom)
+          cp snappy-stock.rom EXPERIMENTAL-snappy-hp-mu.rom
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom print || true
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom add-payload \
+            -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          for n in bootsplash.jpg bootsplash.bmp logo.bmp \
+                   Documentation/coreboot_logo.bmp splash.bmp splash.jpg; do
+            cbfstool EXPERIMENTAL-snappy-hp-mu.rom remove -n "$n" && echo "removed $n" || true
+          done
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom add -f splash.bmp -n bootsplash.bmp -t raw || \
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom add -f splash.bmp -n bootsplash.jpg -t raw || \
+            echo "WARN: splash not added"
+          python3 - <<'PY'
+          # Length-preserving ASCII replacements in the raw ROM.
+          # SMBIOS Type 1 strings are often compiled into coreboot; this is best-effort.
+          path = "EXPERIMENTAL-snappy-hp-mu.rom"
+          data = bytearray(open(path, "rb").read())
+
+          def repl(old: bytes, new: bytes) -> int:
+              if len(new) > len(old):
+                  print(f"skip too-long {old!r} -> {new!r}")
+                  return 0
+              padded = new + b"\x00" * (len(old) - len(new))
+              n = 0
+              start = 0
+              while True:
+                  i = data.find(old, start)
+                  if i < 0:
+                      break
+                  data[i:i + len(old)] = padded
+                  n += 1
+                  start = i + len(old)
+              print(f"replaced {n} x {old!r} -> {new!r}")
+              return n
+
+          # Manufacturer: same or shorter length only.
+          repl(b"Google", b"HP")
+          repl(b"GOOGLE", b"HP")
+          # Product: only replace if an existing string is long enough.
+          product = b"HP Chromebook 14 G5"
+          for old in (
+              b"Google Snappy",
+              b"GOOGLE SNAPPY",
+              b"Snappy",
+              b"SNAPPY",
+          ):
+              if len(old) >= len(product):
+                  repl(old, product)
+              else:
+                  print(f"product too long for slot {old!r} ({len(old)} < {len(product)})")
+          open(path, "wb").write(data)
+          PY
+          SZ=$(stat -c '%s' EXPERIMENTAL-snappy-hp-mu.rom)
+          echo "stock=$STOCK out=$SZ"
+          test "$SZ" -eq "$STOCK"
+          cbfstool EXPERIMENTAL-snappy-hp-mu.rom print || true
+          cat > README-FLASH.txt << 'EOF'
+          EXPERIMENTAL SNAPPY (Apollo Lake).
+          Official MrChromebox wrapper + tianocore UefiPayload (Mu PACKAGES_PATH).
+          HP splash + best-effort SMBIOS string patch (HP / HP Chromebook 14 G5).
+          Not FrontPage. 14 G5 is often SANTA, not SNAPPY — strings only.
+          Restore with snappy-stock.rom.
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXPERIMENTAL-snappy-hp-mu
+          path: |
+            EXPERIMENTAL-snappy-hp-mu.rom
+            snappy-stock.rom
+            UEFIPAYLOAD.fd
+            splash.bmp
+            README-FLASH.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-hp-mu-${{ github.run_id }}
+          name: SNAPPY HP splash + Mu-path payload (prerelease)
+          prerelease: true
+          body: |
+            Experimental SNAPPY image: MrChromebox wrapper, COREBOOT UefiPayload
+            (tianocore + Mu PACKAGES_PATH), HP splash, padded SMBIOS string replace.
+            Not Project Mu FrontPage. Daily: snappy-stock.rom.
+          files: |
+            EXPERIMENTAL-snappy-hp-mu.rom
+            snappy-stock.rom
+            README-FLASH.txt
+            splash.bmp
