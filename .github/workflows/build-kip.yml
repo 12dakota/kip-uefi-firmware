@@ -52,6 +52,23 @@ jobs:
             cp logos/coreboot_logo.bmp coreboot/Documentation/coreboot_logo.bmp
           fi
 
+      - name: Stamp SMBIOS vendor
+        working-directory: coreboot
+        run: |
+          python3 << 'PY'
+from pathlib import Path
+p = Path("build-uefi.sh")
+s = p.read_text()
+block = """echo 'CONFIG_BIOS_VENDOR="dasko networks"' >> .config
+echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="dasko networks"' >> .config
+echo 'CONFIG_SYSTEM_SMBIOS_MANUFACTURER="dasko networks"' >> .config
+"""
+if "dasko networks" not in s:
+    s = s.replace("make olddefconfig", block + "make olddefconfig", 1)
+    p.write_text(s)
+print("smbios hook ok")
+PY
+
       - name: Build kip
         working-directory: coreboot
         run: |
