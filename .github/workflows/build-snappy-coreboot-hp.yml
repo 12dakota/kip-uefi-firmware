@@ -43,7 +43,7 @@ jobs:
           {
             echo 'CONFIG_BIOS_VENDOR="coreboot"'
             echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="HP"'
-            echo 'CONFIG_MAINBOARD_SMBIOS_PRODUCT_NAME="HP 14 Special"'
+            echo 'CONFIG_MAINBOARD_SMBIOS_PRODUCT_NAME="Chromebook 14 G5"'
             echo 'CONFIG_LOCALVERSION="hp-special"'
           } >> "$CFG"
       - name: build-uefi.sh snappy
@@ -67,7 +67,7 @@ jobs:
           name: SNAPPY coreboot rebuild (HP strings + mark)
           body: |
             Rebuilt MrChromebox coreboot for snappy.
-            SMBIOS manufacturer HP, product "HP 14 Special".
+            SMBIOS manufacturer HP, product "Chromebook 14 G5".
             Documentation/coreboot_logo.bmp is an HP mark.
             Payload is still MrChromebox edk2 (grey Tianocore setup).
             Not official HP EliteBook firmware. Not a disguise for sealing/resale.
