@@ -1,0 +1,104 @@
+name: Build Project Mu UEFI for Snappy Chromebook
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write # Crucial requirement to allow the pipeline to create and push releases
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Project Mu Platforms Repo
+      uses: actions/checkout@v4
+      with:
+        repository: 'microsoft/mu_tianocore_platforms'
+        path: 'mu_tianocore_platforms'
+
+    - name: Checkout MrChromebox Coreboot Repo
+      uses: actions/checkout@v4
+      with:
+        repository: 'MrChromebox/coreboot'
+        path: 'coreboot'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential bison flex gnat libncurses5-dev m4 \
+          uuid-dev iasl git gcc-aarch64-linux-gnu nasm \
+          python3 python3-pip python3-venv mono-devel pkg-config \
+          zlib1g-dev libkmod-dev libblkid-dev libssl-dev libcmocka-dev libnss3-dev
+
+    - name: Build Coreboot Toolchain (i386/x86_64)
+      run: |
+        cd coreboot
+        make crossgcc-i386 CPUS=$(nproc)
+
+    - name: Compile Snappy Coreboot Base
+      run: |
+        cd coreboot
+        ./build-uefi.sh snappy
+        
+        mkdir -p ../roms_out
+        if [ -f "$HOME/dev/roms/coreboot_snappy.rom" ]; then
+          cp "$HOME/dev/roms/coreboot_snappy.rom" ../roms_out/snappy_base.rom
+        else
+          cp build/coreboot.rom ../roms_out/snappy_base.rom
+        fi
+
+    - name: Set up Python Environment for Project Mu
+      run: |
+        python3 -m venv venv
+        echo "$GITHUB_WORKSPACE/venv/bin" >> $GITHUB_PATH
+
+    - name: Install Project Mu Stuart Build Tools
+      run: |
+        ./venv/bin/pip install --upgrade pip
+        ./venv/bin/pip install mu-build mu-environment
+
+    - name: Initialize & Compile Project Mu Coreboot Payload
+      run: |
+        cd mu_tianocore_platforms
+        stuart_update -c Platforms/CorebootPayloadPkg/PlatformBuild.py
+        stuart_build -c Platforms/CorebootPayloadPkg/PlatformBuild.py TOOL_CHAIN_TAG=GCC5 TARGET=RELEASE
+
+    - name: Inject Project Mu Payload into Snappy ROM
+      run: |
+        MU_PAYLOAD=$(find mu_tianocore_platforms/Build/CorebootPayloadPkg/RELEASE_GCC5/FV/ -name "UEFI_PAYLOAD.fd" | head -n 1)
+        
+        if [ -z "$MU_PAYLOAD" ]; then
+          echo "Error: Project Mu UEFI payload missing!"
+          exit 1
+        fi
+        
+        CBFSTOOL="./coreboot/build/util/cbfstool/cbfstool"
+        ROM_IMAGE="roms_out/snappy_base.rom"
+        
+        echo "Injecting Project Mu payload into custom Snappy ROM image..."
+        $CBFSTOOL "$ROM_IMAGE" remove -n fallback/payload
+        $CBFSTOOL "$ROM_IMAGE" add-payload -f "$MU_PAYLOAD" -n fallback/payload -c lzma
+        
+        mv "$ROM_IMAGE" roms_out/coreboot_snappy_project_mu.rom
+        echo "Successfully built customized target ROM."
+
+    - name: Create Unique Release Tag
+      id: tag_gen
+      run: |
+        # Generates a clean date-time based tag, e.g., v2026.09.10-0808
+        TAG_NAME="v$(date +'%Y.%m.%d-%H%M')"
+        echo "RELEASE_TAG=$TAG_NAME" >> $GITHUB_ENV
+
+    - name: Publish to GitHub Releases
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create ${{ env.RELEASE_TAG }} \
+          --title "Snappy Coreboot + Project Mu UEFI Payload (${{ env.RELEASE_TAG }})" \
+          --notes "Automated release containing the compiled custom Coreboot ROM image for Intel Apollo Lake 'Snappy' Chromebooks with Microsoft's Project Mu UEFI payload integrated." \
+          --target main \
+          roms_out/coreboot_snappy_project_mu.rom
