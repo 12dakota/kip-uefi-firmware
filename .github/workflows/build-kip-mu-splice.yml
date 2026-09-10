@@ -47,10 +47,10 @@ jobs:
           git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_basecore.git
           git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_plus.git
           git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_tiano_plus.git
-      - name: Clone UefiPayloadPkg (COREBOOT + SMMSTORE live here, not in Mu)
+      - name: Clone upstream tianocore UefiPayloadPkg (no MrChromebox edk2)
         uses: actions/checkout@v4
         with:
-          repository: MrChromebox/edk2
+          repository: tianocore/edk2
           path: edk2
           fetch-depth: 1
           submodules: recursive
