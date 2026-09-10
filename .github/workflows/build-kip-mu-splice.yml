@@ -34,7 +34,7 @@ jobs:
           path: kip-stock.rom
 
   mu-payload:
-    name: Build MrChromebox UefiPayload (SMMSTORE + CbParse)
+    name: Build COREBOOT payload with Project Mu on PACKAGES_PATH
     runs-on: ubuntu-22.04
     steps:
       - name: Packages
@@ -42,20 +42,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential uuid-dev iasl nasm python3 \
             python-is-python3 gcc-multilib uuid-runtime
-      - name: Clone MrChromebox edk2 (Chromebook patches)
+      - name: Clone Project Mu
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_basecore.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_plus.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_tiano_plus.git
+      - name: Clone UefiPayloadPkg (COREBOOT + SMMSTORE live here, not in Mu)
         uses: actions/checkout@v4
         with:
           repository: MrChromebox/edk2
           path: edk2
-          fetch-depth: 0
+          fetch-depth: 1
           submodules: recursive
       - name: Build payload
-        working-directory: edk2
         run: |
-          make -C BaseTools
+          make -C edk2/BaseTools
+          export PACKAGES_PATH="$GITHUB_WORKSPACE/mu_basecore:$GITHUB_WORKSPACE/mu_plus:$GITHUB_WORKSPACE/mu_tiano_plus:$GITHUB_WORKSPACE/edk2"
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
           . ./edksetup.sh
           DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
           if [ ! -f "$DSC" ]; then DSC=UefiPayloadPkg/UefiPayloadPkg.dsc; fi
+          echo "PACKAGES_PATH=$PACKAGES_PATH"
           echo "dsc=$DSC"
           build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
             || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
