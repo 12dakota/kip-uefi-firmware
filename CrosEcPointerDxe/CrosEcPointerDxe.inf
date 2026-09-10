@@ -1,0 +1,28 @@
+[Defines]
+  INF_VERSION    = 0x00010006
+  BASE_NAME      = CrosEcPointerDxe
+  FILE_GUID      = 6e2a91c0-17b4-4d3e-8a44-ec00000000b1
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = CrosEcPointerEntry
+
+[Sources]
+  CrosEcPointerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  DebugLib
+
+[Protocols]
+  gEfiSimplePointerProtocolGuid
+
+[Depex]
+  TRUE
