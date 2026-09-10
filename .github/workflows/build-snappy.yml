@@ -1,0 +1,32 @@
+# Official MrChromebox SNAPPY Full ROM only.
+# SNAPPY is Apollo Lake (N3350), not kip/Bay Trail. Do not splice kip FDs onto this image.
+name: SNAPPY official Full ROM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stock-snappy-rom:
+    name: Download MrChromebox snappy Full ROM
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fetch download-fullrom.sh
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+      - name: Download snappy ROM
+        run: |
+          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          find roms -type f -name '*.rom' -exec ls -l {} \;
+          ROM=$(find roms -type f \( -iname '*snappy*.rom' -o -name '*.rom' \) | head -n1)
+          test -n "$ROM"
+          cp "$ROM" snappy-stock.rom
+          echo "size=$(stat -c '%s' snappy-stock.rom)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-stock-SAFE-FLASH
+          path: snappy-stock.rom
