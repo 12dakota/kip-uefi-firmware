@@ -20,10 +20,8 @@ jobs:
             pkg-config python-is-python3 git imagemagick wget
       - name: Fetch official snappy ROM
         run: |
-          curl -fsSL -o download-fullrom.sh \
-            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
-          chmod +x download-fullrom.sh
-          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          git clone --depth 1 https://github.com/MrChromebox/scripts.git mc-scripts
+          bash mc-scripts/download-fullrom.sh -o roms snappy || bash mc-scripts/download-fullrom.sh -o roms SNAPPY
           ROM=$(find roms -type f -name '*.rom' | head -n1)
           test -n "$ROM"
           cp "$ROM" snappy-stock.rom
