@@ -1,0 +1,13 @@
+# Target Defines for KipUefiPayload.dsc (when the package exists)
+
+DEFINE BOOTLOADER              = COREBOOT
+DEFINE VARIABLE_SUPPORT        = SMMSTORE
+DEFINE GUI_FRONT_PAGE          = FALSE
+DEFINE BOOT_TO_FRONT_PAGE      = FALSE
+DEFINE SHELL_TYPE              = NONE
+DEFINE NETWORK_ENABLE          = FALSE
+DEFINE SOURCE_DEBUG_ENABLE     = FALSE
+
+# Libraries that must stay MrChromebox / UefiPayload, not Mu defaults:
+#   BlParseLib  -> CbParseLib
+#   SmmStoreLib -> SMMStoreLib

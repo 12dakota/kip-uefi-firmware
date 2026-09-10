@@ -1,0 +1,20 @@
+# Own KipMu payload FD. Not a daily ROM.
+name: KipMu own payload (experimental FD)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  note:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Platform status
+        run: |
+          echo "KipMu platform is scaffolding only."
+          echo "Daily ROM remains MrChromebox kip Full ROM."
+          ls -la Platform/KipMu
+          test -f Platform/KipMu/README.md
