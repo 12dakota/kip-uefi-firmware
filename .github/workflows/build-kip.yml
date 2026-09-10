@@ -7,6 +7,7 @@ on:
     paths:
       - "logos/**"
       - ".github/workflows/build-kip.yml"
+      # windows/ changes do not rebuild the ROM
 
 permissions:
   contents: write
