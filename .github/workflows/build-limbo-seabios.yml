@@ -1,0 +1,38 @@
+# Limbo/QEMU PC BIOS. Not a SNAPPY SPI ROM — Limbo cannot run Chromebook firmware.
+name: Limbo SeaBIOS (bios.bin)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  seabios:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Packages
+        run: sudo apt-get update && sudo apt-get install -y build-essential gcc-multilib python3
+      - name: Build SeaBIOS
+        run: |
+          git clone --depth 1 https://github.com/coreboot/seabios.git
+          make -C seabios -j"$(nproc)"
+          test -f seabios/out/bios.bin
+          cp seabios/out/bios.bin bios.bin
+          ls -l bios.bin
+          echo "Limbo: Machine -> Import BIOS -> bios.bin. QEMU machine, not SNAPPY flash." > README-LIMBO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: limbo-seabios
+          path: |
+            bios.bin
+            README-LIMBO.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: limbo-seabios-${{ github.run_id }}
+          prerelease: true
+          name: Limbo/QEMU SeaBIOS bios.bin
+          body: SeaBIOS for Limbo custom BIOS import. Not snappy Full ROM.
+          files: |
+            bios.bin
+            README-LIMBO.txt
