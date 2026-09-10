@@ -1,5 +1,5 @@
-# Same idea as a304337: official SNAPPY ROM, payload untouched.
-# Only replace Documentation/coreboot_logo.bmp with an HP BMP.
+# a304337 config: official SNAPPY Full ROM, payload untouched.
+# Splash source is assets/hp-logo.png (user-provided mark).
 name: SNAPPY Full ROM + logo
 
 on:
@@ -17,8 +17,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
-            pkg-config python-is-python3 git imagemagick wget fonts-dejavu-core
-      - name: Official snappy ROM
+            pkg-config python-is-python3 git imagemagick wget
+      - name: Fetch official snappy ROM
         run: |
           curl -fsSL -o download-fullrom.sh \
             https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
@@ -27,15 +27,16 @@ jobs:
           ROM=$(find roms -type f -name '*.rom' | head -n1)
           test -n "$ROM"
           cp "$ROM" snappy-stock.rom
-      - name: cbfstool
+      - name: Build cbfstool
         run: |
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
           git -C cb submodule update --init --depth 1 3rdparty/vboot
           make -C cb/util/cbfstool -j"$(nproc)"
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
-      - name: Replace Documentation/coreboot_logo.bmp
+      - name: Replace Documentation/coreboot_logo.bmp with provided HP mark
         run: |
           set -euo pipefail
+          test -f assets/hp-logo.png
           NAME='Documentation/coreboot_logo.bmp'
           cp snappy-stock.rom snappy-logo.rom
           cbfstool snappy-logo.rom print
@@ -47,44 +48,14 @@ jobs:
               H=$(echo "$WH" | awk '{print $2}')
             fi
           fi
-          convert assets/hp-logo.png -resize "${W}x${H}" -background black -gravity center \
-            -extent "${W}x${H}" -type TrueColor -define bmp:format=bmp3 splash.bmp
+          convert assets/hp-logo.png -resize "${W}x${H}" -background black \
+            -gravity center -extent "${W}x${H}" \
+            -type TrueColor -define bmp:format=bmp3 splash.bmp
           cbfstool snappy-logo.rom remove -n "$NAME" || true
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
           cbfstool snappy-logo.rom print
           test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
-          python3 - <<'PY'
-          data = bytearray(open("snappy-logo.rom", "rb").read())
-
-          def repl_cstr(old, new, limit=6):
-              needle = old + b"\x00"
-              if len(new) > len(old):
-                  print("skip long", old, "need", len(new), "have", len(old))
-                  return
-              if data.count(needle) > 24:
-                  print("skip many", old, data.count(needle))
-                  return
-              pad = new + b"\x00" * (len(old) - len(new))
-              n = 0
-              start = 0
-              while n < limit:
-                  i = data.find(needle, start)
-                  if i < 0:
-                      break
-                  data[i:i+len(old)] = pad
-                  n += 1
-                  start = i + len(needle)
-              print("replaced", old, "->", new, "x", n)
-
-          repl_cstr(b"Google", b"HP")
-          product = b"Chromebook 14 G5"
-          for cand in (b"Google Snappy", b"HP Chromebook 14 G5", b"Chromebook 14 G5"):
-              if len(cand) >= len(product):
-                  repl_cstr(cand, product)
-          print("Snappy (6) cannot hold Chromebook 14 G5 (16)")
-          open("snappy-logo.rom", "wb").write(data)
-          PY
-          echo "Logo + Google->HP C-string. Product 14 G5 only if a long slot exists." > README-SNAPPY.txt
+          echo "a304337-style official payload. Only $NAME from assets/hp-logo.png." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
@@ -96,9 +67,9 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: snappy-logo-${{ github.run_id }}
-          name: SNAPPY coreboot_logo.bmp HP (a304337-style)
+          name: SNAPPY a304337 + provided HP logo
           prerelease: true
-          body: Official SNAPPY ROM. Only Documentation/coreboot_logo.bmp -> HP BMP. Payload unchanged.
+          body: Official SNAPPY ROM like a304337. Only Documentation/coreboot_logo.bmp replaced with the provided HP mark. No SMBIOS patch.
           files: |
             snappy-logo.rom
             snappy-stock.rom
