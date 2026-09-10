@@ -59,11 +59,13 @@ jobs:
 from pathlib import Path
 p = Path("build-uefi.sh")
 s = p.read_text()
-block = """echo 'CONFIG_BIOS_VENDOR="dasko networks"' >> .config
-echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="dasko networks"' >> .config
-echo 'CONFIG_SYSTEM_SMBIOS_MANUFACTURER="dasko networks"' >> .config
+block = """echo 'CONFIG_BIOS_VENDOR="HP"' >> .config
+echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="HP"' >> .config
+echo 'CONFIG_SYSTEM_SMBIOS_MANUFACTURER="HP"' >> .config
+echo 'CONFIG_MAINBOARD_SMBIOS_PRODUCT_NAME="HP Chromebook 11 G4"' >> .config
+echo 'CONFIG_MAINBOARD_PART_NUMBER="HP Chromebook 11 G4"' >> .config
 """
-if "dasko networks" not in s:
+if "HP" not in s:
     s = s.replace("make olddefconfig", block + "make olddefconfig", 1)
     p.write_text(s)
 print("smbios hook ok")
