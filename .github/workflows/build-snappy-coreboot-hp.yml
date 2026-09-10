@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     steps:
+      - uses: actions/checkout@v4
       - name: Packages
         run: |
           sudo apt-get update
@@ -26,10 +27,8 @@ jobs:
           git -C coreboot submodule update --init --checkout --recursive --depth 1
       - name: HP mark as Documentation/coreboot_logo.bmp
         run: |
-          convert -size 200x200 xc:black -gravity center \
-            -fill white -font DejaVu-Sans-Bold -pointsize 48 \
-            -annotate 0 'HP' \
-            -type TrueColor -define bmp:format=bmp3 \
+          convert "$GITHUB_WORKSPACE/assets/hp-logo.png" -resize 200x200 -background black -gravity center \
+            -extent 200x200 -type TrueColor -define bmp:format=bmp3 \
             coreboot/Documentation/coreboot_logo.bmp
       - name: crossgcc-i386
         run: |

@@ -12,6 +12,7 @@ jobs:
   snappy-logo:
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v4
       - name: Packages
         run: |
           sudo apt-get update
@@ -46,9 +47,8 @@ jobs:
               H=$(echo "$WH" | awk '{print $2}')
             fi
           fi
-          convert -size "${W}x${H}" xc:black -gravity center \
-            -fill white -font DejaVu-Sans-Bold -pointsize $((W/4)) \
-            -annotate 0 'HP' -type TrueColor -define bmp:format=bmp3 splash.bmp
+          convert assets/hp-logo.png -resize "${W}x${H}" -background black -gravity center \
+            -extent "${W}x${H}" -type TrueColor -define bmp:format=bmp3 splash.bmp
           cbfstool snappy-logo.rom remove -n "$NAME" || true
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
           cbfstool snappy-logo.rom print
