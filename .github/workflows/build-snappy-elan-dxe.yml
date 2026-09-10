@@ -1,0 +1,87 @@
+# Experimental SNAPPY: official wrapper + UefiPayload that includes SnappyElanPointerDxe.
+# DXE scans APL LPSS I2C; does not talk to Elan 0x15. Pad will not move.
+name: SNAPPY Elan pointer DXE splice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib uuid-dev iasl nasm \
+            python3 python-is-python3 zlib1g-dev libssl-dev pkg-config git
+      - name: Official snappy ROM
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" snappy-stock.rom
+      - name: UefiPayload + SnappyElanPointerDxe
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
+          mkdir -p edk2/UefiPayloadPkg/SnappyElanPointerDxe
+          cp drivers/SnappyElanPointerDxe/SnappyElanPointerDxe.c edk2/UefiPayloadPkg/SnappyElanPointerDxe/
+          cp drivers/SnappyElanPointerDxe/SnappyElanPointerDxe.inf edk2/UefiPayloadPkg/SnappyElanPointerDxe/
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc; do
+            [ -f "$f" ] || continue
+            grep -q SnappyElanPointerDxe "$f" || \
+              echo '  UefiPayloadPkg/SnappyElanPointerDxe/SnappyElanPointerDxe.inf' >> "$f"
+          done
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.fdf edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.fdf; do
+            [ -f "$f" ] || continue
+            grep -q SnappyElanPointerDxe "$f" || \
+              printf '\nINF  UefiPayloadPkg/SnappyElanPointerDxe/SnappyElanPointerDxe.inf\n' >> "$f"
+          done
+          make -C edk2/BaseTools
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkg.dsc
+          [ -f UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc ] && DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - name: Splice
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+          STOCK=$(stat -c '%s' snappy-stock.rom)
+          cp snappy-stock.rom EXPERIMENTAL-snappy-elan-dxe.rom
+          cbfstool EXPERIMENTAL-snappy-elan-dxe.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-snappy-elan-dxe.rom add-payload \
+            -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          test "$(stat -c '%s' EXPERIMENTAL-snappy-elan-dxe.rom)" -eq "$STOCK"
+          echo "Experimental. SnappyElanPointerDxe is PCI scan only. Pad will not move. Restore snappy-stock.rom" > README-FLASH.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-elan-dxe
+          path: |
+            EXPERIMENTAL-snappy-elan-dxe.rom
+            snappy-stock.rom
+            README-FLASH.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-elan-dxe-${{ github.run_id }}
+          prerelease: true
+          name: SNAPPY Elan pointer DXE (experimental)
+          body: Official SNAPPY wrapper + payload containing SnappyElanPointerDxe. Not a working pad.
+          files: |
+            EXPERIMENTAL-snappy-elan-dxe.rom
+            snappy-stock.rom
+            README-FLASH.txt
