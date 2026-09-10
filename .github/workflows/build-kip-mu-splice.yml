@@ -87,6 +87,7 @@ jobs:
       - name: Build cbfstool
         run: |
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
           make -C cb/util/cbfstool -j"$(nproc)"
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
       - name: Splice
