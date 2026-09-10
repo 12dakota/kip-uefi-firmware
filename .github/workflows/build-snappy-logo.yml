@@ -1,5 +1,5 @@
-# SNAPPY official Full ROM + bootsplash replace. Lab only.
-# SNAPPY = Apollo Lake. Do not use kip payloads on this image.
+# a304337 behavior: official SNAPPY ROM + logo only.
+# Replace ONLY Documentation/coreboot_logo.bmp (coreboot power-on mark).
 name: SNAPPY Full ROM + logo
 
 on:
@@ -26,39 +26,40 @@ jobs:
           ROM=$(find roms -type f -name '*.rom' | head -n1)
           test -n "$ROM"
           cp "$ROM" snappy-stock.rom
-          ls -l snappy-stock.rom
       - name: Build cbfstool
         run: |
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
           git -C cb submodule update --init --depth 1 3rdparty/vboot
           make -C cb/util/cbfstool -j"$(nproc)"
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
-      - name: Make splash BMP
-        run: |
-          # White wordmark on black, 800x600 BMP (coreboot splash-friendly)
-          convert -size 800x600 xc:black -gravity center \
-            -fill white -font DejaVu-Sans-Bold -pointsize 72 \
-            -annotate 0 'HP' \
-            -type TrueColor -define bmp:format=bmp3 splash.bmp
-          ls -l splash.bmp
-      - name: Replace splash in ROM
+      - name: Replace Documentation/coreboot_logo.bmp only
         run: |
           set -euo pipefail
+          NAME='Documentation/coreboot_logo.bmp'
           cp snappy-stock.rom snappy-logo.rom
           cbfstool snappy-logo.rom print
-          for n in bootsplash.jpg bootsplash.bmp logo.bmp \
-                   Documentation/coreboot_logo.bmp fallback/bootsplash \
-                   splash.bmp splash.jpg; do
-            cbfstool snappy-logo.rom remove -n "$n" && echo "removed $n" || true
-          done
-          # Prefer bootsplash.bmp if CBFS has room; ignore failure
-          cbfstool snappy-logo.rom add -f splash.bmp -n bootsplash.bmp -t raw || \
-          cbfstool snappy-logo.rom add -f splash.bmp -n bootsplash.jpg -t raw || \
-            echo "WARN: could not add splash (layout full or name mismatch)"
+          W=200
+          H=200
+          if cbfstool snappy-logo.rom extract -n "$NAME" -f old_logo.bmp; then
+            echo "extracted $NAME"
+            identify old_logo.bmp || true
+            WH=$(identify -format '%w %h' old_logo.bmp 2>/dev/null || true)
+            if [ -n "$WH" ]; then
+              W=$(echo "$WH" | awk '{print $1}')
+              H=$(echo "$WH" | awk '{print $2}')
+            fi
+          else
+            echo "stock has no $NAME; will add it"
+          fi
+          convert -size "${W}x${H}" xc:black -gravity center \
+            -fill white -font DejaVu-Sans-Bold -pointsize $((W/4)) \
+            -annotate 0 'HP' \
+            -type TrueColor -define bmp:format=bmp3 splash.bmp
+          cbfstool snappy-logo.rom remove -n "$NAME" || true
+          cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
           cbfstool snappy-logo.rom print
-          echo "size=$(stat -c '%s' snappy-logo.rom)"
           test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
-          echo "SNAPPY lab image. Prefer snappy-stock if splash replace looks wrong." > README-SNAPPY.txt
+          echo "Replaced only $NAME. Official snappy payload unchanged." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
@@ -71,14 +72,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: snappy-logo-${{ github.run_id }}
-          name: SNAPPY Full ROM + splash (prerelease)
+          name: SNAPPY Documentation/coreboot_logo.bmp HP
           prerelease: true
-          generate_release_notes: false
           body: |
-            Experimental SNAPPY (Apollo Lake) image.
-            Official MrChromebox wrapper + bootsplash replace.
-            Prefer snappy-stock.rom for daily use.
-            Do not flash kip payloads on SNAPPY.
+            Official SNAPPY Full ROM. Only CBFS file
+            Documentation/coreboot_logo.bmp replaced with HP BMP.
+            Payload unchanged. Daily: snappy-stock.rom.
           files: |
             snappy-logo.rom
             snappy-stock.rom
