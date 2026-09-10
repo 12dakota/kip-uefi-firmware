@@ -33,7 +33,9 @@ jobs:
             coreboot/Documentation/coreboot_logo.bmp
       - name: Toolchain
         run: |
-          make -C coreboot crossgcc-i386 CPUS="$(nproc)"
+          set -euo pipefail
+          # ftpmirror.gnu.org failed in CI (gmp tarball). Use GNU + kernel mirrors.
+          make -C coreboot crossgcc-i386 CPUS="$(nproc)"             BUILDGCC_OPTIONS="-M https://ftp.gnu.org/gnu --nouse-ada"           || make -C coreboot crossgcc-i386 CPUS="$(nproc)"             BUILDGCC_OPTIONS="-M https://mirrors.kernel.org/gnu --nouse-ada"
       - name: Patch snappy defconfig SMBIOS
         run: |
           set -euo pipefail
