@@ -1,0 +1,109 @@
+# Experimental: official kip Full ROM + Tiano/Mu-style UefiPayload splice.
+# NOT the daily flash. Artifact size must be 8388608.
+# Run: Actions → "KIP coreboot + Mu payload splice" → Run workflow
+
+name: KIP coreboot + Mu payload splice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stock-kip-rom:
+    name: Download MrChromebox kip Full ROM
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fetch download-fullrom.sh
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+      - name: Download kip ROM
+        run: |
+          bash download-fullrom.sh -o roms kip || bash download-fullrom.sh -o roms KIP
+          find roms -type f -name '*.rom' -exec ls -l {} \;
+          ROM=$(find roms -type f -name '*kip*.rom' | head -n1)
+          test -n "$ROM"
+          test "$(stat -c '%s' "$ROM")" -eq 8388608
+          cp "$ROM" kip-stock.rom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kip-stock-SAFE-FLASH
+          path: kip-stock.rom
+
+  mu-payload:
+    name: Build UefiPayload.fd (IA32+X64 COREBOOT)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev iasl nasm python3 \
+            python-is-python3 gcc-multilib uuid-runtime
+      - name: Clone edk2
+        uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2
+          path: edk2
+          fetch-depth: 1
+          submodules: recursive
+      - name: Build payload
+        working-directory: edk2
+        run: |
+          make -C BaseTools
+          . ./edksetup.sh
+          build -a IA32 -a X64 -p UefiPayloadPkg/UefiPayloadPkg.dsc \
+            -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+          ls -l "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+          path: UEFIPAYLOAD.fd
+
+  splice:
+    name: LZMA splice into 8MiB ROM
+    needs: [stock-kip-rom, mu-payload]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
+            pkg-config python-is-python3
+      - uses: actions/download-artifact@v4
+        with:
+          name: kip-stock-SAFE-FLASH
+      - uses: actions/download-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+      - name: Build cbfstool
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+      - name: Splice
+        run: |
+          set -euo pipefail
+          cp kip-stock.rom EXPERIMENTAL-kip-coreboot-mu.rom
+          cbfstool EXPERIMENTAL-kip-coreboot-mu.rom print || true
+          cbfstool EXPERIMENTAL-kip-coreboot-mu.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-kip-coreboot-mu.rom add-payload \
+            -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          cbfstool EXPERIMENTAL-kip-coreboot-mu.rom print
+          SZ=$(stat -c '%s' EXPERIMENTAL-kip-coreboot-mu.rom)
+          echo "size=$SZ"
+          test "$SZ" -eq 8388608
+          echo "EXPERIMENTAL. Flash only with a backup. Prefer kip-stock-SAFE-FLASH." > README-FLASH.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXPERIMENTAL-kip-coreboot-mu-rom
+          path: |
+            EXPERIMENTAL-kip-coreboot-mu.rom
+            README-FLASH.txt
+            UEFIPAYLOAD.fd
+            kip-stock.rom
