@@ -101,53 +101,8 @@ jobs:
           cbfstool EXPERIMENTAL-snappy-hp-mu.rom remove -n fallback/payload || true
           cbfstool EXPERIMENTAL-snappy-hp-mu.rom add-payload \
             -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
-          for n in bootsplash.jpg bootsplash.bmp logo.bmp \
-                   Documentation/coreboot_logo.bmp splash.bmp splash.jpg; do
-            cbfstool EXPERIMENTAL-snappy-hp-mu.rom remove -n "$n" && echo "removed $n" || true
-          done
-          cbfstool EXPERIMENTAL-snappy-hp-mu.rom add -f splash.bmp -n bootsplash.bmp -t raw || \
-          cbfstool EXPERIMENTAL-snappy-hp-mu.rom add -f splash.bmp -n bootsplash.jpg -t raw || \
-            echo "WARN: splash not added"
-          python3 - <<'PY'
-          # Length-preserving ASCII replacements in the raw ROM.
-          # SMBIOS Type 1 strings are often compiled into coreboot; this is best-effort.
-          path = "EXPERIMENTAL-snappy-hp-mu.rom"
-          data = bytearray(open(path, "rb").read())
-
-          def repl(old: bytes, new: bytes) -> int:
-              if len(new) > len(old):
-                  print(f"skip too-long {old!r} -> {new!r}")
-                  return 0
-              padded = new + b"\x00" * (len(old) - len(new))
-              n = 0
-              start = 0
-              while True:
-                  i = data.find(old, start)
-                  if i < 0:
-                      break
-                  data[i:i + len(old)] = padded
-                  n += 1
-                  start = i + len(old)
-              print(f"replaced {n} x {old!r} -> {new!r}")
-              return n
-
-          # Manufacturer: same or shorter length only.
-          repl(b"Google", b"HP")
-          repl(b"GOOGLE", b"HP")
-          # Product: only replace if an existing string is long enough.
-          product = b"HP Chromebook 14 G5"
-          for old in (
-              b"Google Snappy",
-              b"GOOGLE SNAPPY",
-              b"Snappy",
-              b"SNAPPY",
-          ):
-              if len(old) >= len(product):
-                  repl(old, product)
-              else:
-                  print(f"product too long for slot {old!r} ({len(old)} < {len(product)})")
-          open(path, "wb").write(data)
-          PY
+          # Keep stock splash. Do not strip CBFS logos or hex-patch "Google".
+          # Those two steps produced display-with-no-menu on device.
           SZ=$(stat -c '%s' EXPERIMENTAL-snappy-hp-mu.rom)
           echo "stock=$STOCK out=$SZ"
           test "$SZ" -eq "$STOCK"
