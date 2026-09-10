@@ -1,4 +1,5 @@
-# Official SNAPPY ROM: coreboot_logo.bmp + 6-char product slot.
+# Same idea as a304337: official SNAPPY ROM, payload untouched.
+# Only replace Documentation/coreboot_logo.bmp with an HP BMP.
 name: SNAPPY Full ROM + logo
 
 on:
@@ -16,7 +17,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
             pkg-config python-is-python3 git imagemagick wget fonts-dejavu-core
-      - name: Fetch official snappy ROM
+      - name: Official snappy ROM
         run: |
           curl -fsSL -o download-fullrom.sh \
             https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
@@ -25,13 +26,13 @@ jobs:
           ROM=$(find roms -type f -name '*.rom' | head -n1)
           test -n "$ROM"
           cp "$ROM" snappy-stock.rom
-      - name: Build cbfstool
+      - name: cbfstool
         run: |
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
           git -C cb submodule update --init --depth 1 3rdparty/vboot
           make -C cb/util/cbfstool -j"$(nproc)"
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
-      - name: Logo + 6-char product string
+      - name: Replace Documentation/coreboot_logo.bmp
         run: |
           set -euo pipefail
           NAME='Documentation/coreboot_logo.bmp'
@@ -40,43 +41,19 @@ jobs:
           W=200; H=200
           if cbfstool snappy-logo.rom extract -n "$NAME" -f old_logo.bmp; then
             WH=$(identify -format '%w %h' old_logo.bmp 2>/dev/null || true)
-            if [ -n "$WH" ]; then W=$(echo "$WH" | awk '{print $1}'); H=$(echo "$WH" | awk '{print $2}'); fi
+            if [ -n "$WH" ]; then
+              W=$(echo "$WH" | awk '{print $1}')
+              H=$(echo "$WH" | awk '{print $2}')
+            fi
           fi
           convert -size "${W}x${H}" xc:black -gravity center \
             -fill white -font DejaVu-Sans-Bold -pointsize $((W/4)) \
             -annotate 0 'HP' -type TrueColor -define bmp:format=bmp3 splash.bmp
           cbfstool snappy-logo.rom remove -n "$NAME" || true
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
-          python3 - <<'PY'
-          data = bytearray(open("snappy-logo.rom", "rb").read())
-
-          def repl_exact(old: bytes, new: bytes, limit=6):
-              if len(new) != len(old):
-                  raise SystemExit(f"length mismatch {old!r} {new!r}")
-              needle = old + b"\x00"
-              n = data.count(needle)
-              if n > 24:
-                  print(f"skip {old!r}: {n} hits")
-                  return
-              start = 0
-              done = 0
-              while done < limit:
-                  i = data.find(needle, start)
-                  if i < 0:
-                      break
-                  data[i:i+len(old)] = new
-                  done += 1
-                  start = i + len(needle)
-              print(f"{old!r} -> {new!r} x{done}")
-
-          repl_exact(b"Google", b"HP\x00\x00\x00\x00")
-          # Snappy is 6 bytes. Full 'Chromebook 14G5' is 16 and will not fit.
-          repl_exact(b"Snappy", b"HP14G5")
-          repl_exact(b"SNAPPY", b"HP14G5")
-          open("snappy-logo.rom", "wb").write(data)
-          PY
+          cbfstool snappy-logo.rom print
           test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
-          echo "Logo + Snappy slot -> HP14G5 (6 chars). Not full Chromebook 14G5." > README-SNAPPY.txt
+          echo "a304337-style: only $NAME replaced. Payload stock." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
@@ -88,10 +65,11 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: snappy-logo-${{ github.run_id }}
-          name: SNAPPY logo + HP14G5 product slot
+          name: SNAPPY coreboot_logo.bmp HP (a304337-style)
           prerelease: true
-          body: Official SNAPPY ROM. coreboot_logo.bmp=HP. Product C-string Snappy->HP14G5. Payload stock.
+          body: Official SNAPPY ROM. Only Documentation/coreboot_logo.bmp -> HP BMP. Payload unchanged.
           files: |
             snappy-logo.rom
             snappy-stock.rom
+            splash.bmp
             README-SNAPPY.txt
