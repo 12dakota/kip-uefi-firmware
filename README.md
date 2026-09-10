@@ -34,3 +34,11 @@ Or push a change under `logos/` or the workflow file.
 
 Source firmware: [MrChromebox/coreboot](https://github.com/MrChromebox/coreboot)
 Docs: https://docs.mrchromebox.tech/docs/support/compiling.html
+
+## This build's extras
+
+- Slanted HP wordmark splash
+- **iPXE** enabled in edk2 (`./build-uefi.sh --ipxe kip`)
+- Full 8 MiB SPI image
+
+Still not included: Windows touchpad/Wi-Fi/audio drivers, HP Wolf, setup password.

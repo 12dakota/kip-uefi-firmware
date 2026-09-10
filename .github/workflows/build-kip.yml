@@ -55,7 +55,7 @@ jobs:
         working-directory: coreboot
         run: |
           mkdir -p "$HOME/dev/roms"
-          ./build-uefi.sh kip
+          ./build-uefi.sh --ipxe kip
 
       - name: Collect ROM
         run: |
