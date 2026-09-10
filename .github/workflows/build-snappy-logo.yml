@@ -59,7 +59,45 @@ jobs:
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
           cbfstool snappy-logo.rom print
           test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
-          echo "Replaced only $NAME. Official snappy payload unchanged." > README-SNAPPY.txt
+          python3 - <<'PY'
+          path = "snappy-logo.rom"
+          data = bytearray(open(path, "rb").read())
+
+          def repl_cstr(old: bytes, new: bytes, limit: int = 8) -> int:
+              needle = old + b"\x00"
+              if data.count(needle) > 32:
+                  print(f"skip {old!r}: too many hits ({data.count(needle)})")
+                  return 0
+              if len(new) > len(old):
+                  print(f"skip {old!r}: new string longer")
+                  return 0
+              padded = new + b"\x00" * (len(old) - len(new))
+              n = 0
+              start = 0
+              while n < limit:
+                  i = data.find(needle, start)
+                  if i < 0:
+                      break
+                  data[i:i + len(old)] = padded
+                  n += 1
+                  start = i + len(needle)
+              print(f"cstr {old!r} -> {new!r} x{n}")
+              return n
+
+          repl_cstr(b"Google", b"HP")
+          product = b"HP Chromebook 14 G5"
+          for old in (b"Google Snappy", b"HP Chromebook 14 G5"):
+              pass
+          for old in (b"Google Snappy",):
+              if len(old) >= len(product):
+                  repl_cstr(old, product)
+              else:
+                  print(f"cannot fit product into {old!r}")
+          # Snappy is too short for full 14 G5 name
+          print("Snappy slot too short for 'HP Chromebook 14 G5'; manufacturer only if Google\\0 found")
+          open(path, "wb").write(data)
+          PY
+          echo "Logo + limited C-string SMBIOS. Payload unchanged." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
