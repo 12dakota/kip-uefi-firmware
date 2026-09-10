@@ -1,0 +1,43 @@
+name: SBL QEMU only (DO NOT FLASH ON KIP)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sbl-qemu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Install SBL deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 python3-pip uuid-dev openssl \
+            gcc-multilib git iasl nasm qemu-system-x86
+
+      - name: Clone Slim Bootloader
+        run: |
+          git clone --depth 1 https://github.com/slimbootloader/slimbootloader.git
+          cd slimbootloader
+          git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+      - name: Build QEMU target
+        working-directory: slimbootloader
+        run: |
+          python3 BuildLoader.py build qemu
+
+      - name: Collect QEMU image
+        run: |
+          mkdir -p dist
+          echo "NOT FOR HP CHROMEBOOK KIP. QEMU q35 only." > dist/DO-NOT-FLASH-ON-KIP.txt
+          find slimbootloader/Outputs -type f \( -name 'SlimBootloader.bin' -o -name '*.bin' -o -name '*.fd' \) -exec cp -v {} dist/ \;
+          ls -la dist
+          test -n "$(ls -A dist/*.bin dist/*.fd 2>/dev/null)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbl-qemu-NOT-KIP
+          path: dist/*
