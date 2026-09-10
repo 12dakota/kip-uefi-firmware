@@ -1,5 +1,4 @@
-# a304337 behavior: official SNAPPY ROM + logo only.
-# Replace ONLY Documentation/coreboot_logo.bmp (coreboot power-on mark).
+# Official SNAPPY ROM: coreboot_logo.bmp + 6-char product slot.
 name: SNAPPY Full ROM + logo
 
 on:
@@ -32,72 +31,52 @@ jobs:
           git -C cb submodule update --init --depth 1 3rdparty/vboot
           make -C cb/util/cbfstool -j"$(nproc)"
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
-      - name: Replace Documentation/coreboot_logo.bmp only
+      - name: Logo + 6-char product string
         run: |
           set -euo pipefail
           NAME='Documentation/coreboot_logo.bmp'
           cp snappy-stock.rom snappy-logo.rom
           cbfstool snappy-logo.rom print
-          W=200
-          H=200
+          W=200; H=200
           if cbfstool snappy-logo.rom extract -n "$NAME" -f old_logo.bmp; then
-            echo "extracted $NAME"
-            identify old_logo.bmp || true
             WH=$(identify -format '%w %h' old_logo.bmp 2>/dev/null || true)
-            if [ -n "$WH" ]; then
-              W=$(echo "$WH" | awk '{print $1}')
-              H=$(echo "$WH" | awk '{print $2}')
-            fi
-          else
-            echo "stock has no $NAME; will add it"
+            if [ -n "$WH" ]; then W=$(echo "$WH" | awk '{print $1}'); H=$(echo "$WH" | awk '{print $2}'); fi
           fi
           convert -size "${W}x${H}" xc:black -gravity center \
             -fill white -font DejaVu-Sans-Bold -pointsize $((W/4)) \
-            -annotate 0 'HP' \
-            -type TrueColor -define bmp:format=bmp3 splash.bmp
+            -annotate 0 'HP' -type TrueColor -define bmp:format=bmp3 splash.bmp
           cbfstool snappy-logo.rom remove -n "$NAME" || true
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
-          cbfstool snappy-logo.rom print
-          test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
           python3 - <<'PY'
-          path = "snappy-logo.rom"
-          data = bytearray(open(path, "rb").read())
+          data = bytearray(open("snappy-logo.rom", "rb").read())
 
-          def repl_cstr(old: bytes, new: bytes, limit: int = 8) -> int:
+          def repl_exact(old: bytes, new: bytes, limit=6):
+              if len(new) != len(old):
+                  raise SystemExit(f"length mismatch {old!r} {new!r}")
               needle = old + b"\x00"
-              if data.count(needle) > 32:
-                  print(f"skip {old!r}: too many hits ({data.count(needle)})")
-                  return 0
-              if len(new) > len(old):
-                  print(f"skip {old!r}: new string longer")
-                  return 0
-              padded = new + b"\x00" * (len(old) - len(new))
-              n = 0
+              n = data.count(needle)
+              if n > 24:
+                  print(f"skip {old!r}: {n} hits")
+                  return
               start = 0
-              while n < limit:
+              done = 0
+              while done < limit:
                   i = data.find(needle, start)
                   if i < 0:
                       break
-                  data[i:i + len(old)] = padded
-                  n += 1
+                  data[i:i+len(old)] = new
+                  done += 1
                   start = i + len(needle)
-              print(f"cstr {old!r} -> {new!r} x{n}")
-              return n
+              print(f"{old!r} -> {new!r} x{done}")
 
-          repl_cstr(b"Google", b"HP")
-          product = b"HP Chromebook 14 G5"
-          for old in (b"Google Snappy", b"HP Chromebook 14 G5"):
-              pass
-          for old in (b"Google Snappy",):
-              if len(old) >= len(product):
-                  repl_cstr(old, product)
-              else:
-                  print(f"cannot fit product into {old!r}")
-          # Snappy is too short for full 14 G5 name
-          print("Snappy slot too short for 'HP Chromebook 14 G5'; manufacturer only if Google\\0 found")
-          open(path, "wb").write(data)
+          repl_exact(b"Google", b"HP\x00\x00\x00\x00")
+          # Snappy is 6 bytes. Full 'Chromebook 14G5' is 16 and will not fit.
+          repl_exact(b"Snappy", b"HP14G5")
+          repl_exact(b"SNAPPY", b"HP14G5")
+          open("snappy-logo.rom", "wb").write(data)
           PY
-          echo "Logo + limited C-string SMBIOS. Payload unchanged." > README-SNAPPY.txt
+          test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
+          echo "Logo + Snappy slot -> HP14G5 (6 chars). Not full Chromebook 14G5." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
@@ -106,18 +85,13 @@ jobs:
             snappy-stock.rom
             splash.bmp
             README-SNAPPY.txt
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: snappy-logo-${{ github.run_id }}
-          name: SNAPPY Documentation/coreboot_logo.bmp HP
+          name: SNAPPY logo + HP14G5 product slot
           prerelease: true
-          body: |
-            Official SNAPPY Full ROM. Only CBFS file
-            Documentation/coreboot_logo.bmp replaced with HP BMP.
-            Payload unchanged. Daily: snappy-stock.rom.
+          body: Official SNAPPY ROM. coreboot_logo.bmp=HP. Product C-string Snappy->HP14G5. Payload stock.
           files: |
             snappy-logo.rom
             snappy-stock.rom
             README-SNAPPY.txt
-            splash.bmp
