@@ -1,0 +1,91 @@
+name: Build kip UEFI ROM
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "logos/**"
+      - ".github/workflows/build-kip.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison build-essential curl flex git gnat imagemagick \
+            libncurses5-dev m4 nasm python-is-python3 uuid-dev zlib1g-dev \
+            libssl-dev pkg-config libcmocka-dev libnss3-dev
+
+      - name: Clone MrChromebox coreboot
+        run: |
+          git clone --depth 1 https://github.com/MrChromebox/coreboot.git coreboot
+          cd coreboot
+          git submodule update --init --checkout --recursive
+
+      - name: Cache crossgcc
+        uses: actions/cache@v4
+        with:
+          path: coreboot/util/crossgcc/xgcc
+          key: crossgcc-i386-${{ runner.os }}-v1
+
+      - name: Build i386 toolchain
+        working-directory: coreboot
+        run: make crossgcc-i386 CPUS=$(nproc)
+
+      - name: Install custom HP wordmark
+        run: |
+          if [ -f logos/coreboot_logo.bmp ]; then
+            cp logos/coreboot_logo.bmp coreboot/Documentation/coreboot_logo.bmp
+          fi
+
+      - name: Build kip
+        working-directory: coreboot
+        run: |
+          mkdir -p "$HOME/dev/roms"
+          ./build-uefi.sh kip
+
+      - name: Collect ROM
+        run: |
+          mkdir -p dist
+          find "$HOME/dev/roms" coreboot -name '*kip*.rom' -o -name 'coreboot.rom' | tee /tmp/roms.txt
+          find "$HOME/dev/roms" -type f -name '*kip*' -exec cp -v {} dist/ \; || true
+          if [ ! -f dist/*.rom ] 2>/dev/null; then
+            find coreboot -maxdepth 2 -name 'coreboot.rom' -exec cp -v {} dist/coreboot_edk2-kip-custom.rom \; || true
+          fi
+          ls -la dist
+          test -n "$(ls -A dist)"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kip-uefi-rom
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="kip-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" dist/* \
+            --title "kip UEFI $TAG" \
+            --notes "Custom MrChromebox kip Full ROM built by Actions.
+
+          Flash from Linux only:
+          curl -LOf https://mrchromebox.tech/firmware-util.sh
+          sudo bash firmware-util.sh
+          Choose Flash Custom Firmware and select this .rom.
+
+          This image is not official MrChromebox firmware.
+          It does not add HP Wolf Security.
+          Hardware write-protect (battery/screw) still controls who can rewrite the chip."
