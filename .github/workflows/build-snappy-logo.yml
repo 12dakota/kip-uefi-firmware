@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   snappy-logo:
@@ -67,3 +67,20 @@ jobs:
             snappy-stock.rom
             splash.bmp
             README-SNAPPY.txt
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-logo-${{ github.run_id }}
+          name: SNAPPY Full ROM + splash (prerelease)
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Experimental SNAPPY (Apollo Lake) image.
+            Official MrChromebox wrapper + bootsplash replace.
+            Prefer snappy-stock.rom for daily use.
+            Do not flash kip payloads on SNAPPY.
+          files: |
+            snappy-logo.rom
+            snappy-stock.rom
+            README-SNAPPY.txt
+            splash.bmp
