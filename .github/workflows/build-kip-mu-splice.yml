@@ -34,7 +34,7 @@ jobs:
           path: kip-stock.rom
 
   mu-payload:
-    name: Build UefiPayload.fd (IA32+X64 COREBOOT)
+    name: Build MrChromebox UefiPayload (SMMSTORE + CbParse)
     runs-on: ubuntu-22.04
     steps:
       - name: Packages
@@ -42,19 +42,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential uuid-dev iasl nasm python3 \
             python-is-python3 gcc-multilib uuid-runtime
-      - name: Clone edk2
+      - name: Clone MrChromebox edk2 (Chromebook patches)
         uses: actions/checkout@v4
         with:
-          repository: tianocore/edk2
+          repository: MrChromebox/edk2
           path: edk2
-          fetch-depth: 1
+          fetch-depth: 0
           submodules: recursive
       - name: Build payload
         working-directory: edk2
         run: |
           make -C BaseTools
           . ./edksetup.sh
-          build -a IA32 -a X64 -p UefiPayloadPkg/UefiPayloadPkg.dsc \
+          DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          if [ ! -f "$DSC" ]; then DSC=UefiPayloadPkg/UefiPayloadPkg.dsc; fi
+          build -a IA32 -a X64 -p "$DSC" \
             -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
           FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
           test -n "$FD"
