@@ -1,0 +1,30 @@
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = ElanI2cPointerDxe
+  FILE_GUID                      = 9D8B2C40-7A11-4E20-B166-00C0FFEE0001
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = ElanI2cPointerEntry
+
+[Sources]
+  ElanI2cPointerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  DebugLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PciLib
+
+[Protocols]
+  gEfiSimplePointerProtocolGuid
+  gEfiPciIoProtocolGuid
+
+[Depex]
+  TRUE
