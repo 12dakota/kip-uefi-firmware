@@ -1,0 +1,74 @@
+# Rebuild MrChromebox coreboot for SNAPPY with baked SMBIOS + logo.
+# Setup UI remains Tianocore. Not official HP/Insyde/AMI EliteBook firmware.
+name: SNAPPY coreboot rebuild HP strings
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison build-essential curl flex git gnat \
+            imagemagick libncurses5-dev m4 nasm python-is-python3 uuid-dev \
+            zlib1g-dev libssl-dev pkg-config libcmocka-dev libnss3-dev \
+            fonts-dejavu-core
+      - name: Clone MrChromebox coreboot
+        run: |
+          git clone --depth 1 https://github.com/MrChromebox/coreboot.git coreboot
+          git -C coreboot submodule update --init --checkout --recursive --depth 1
+      - name: HP mark as Documentation/coreboot_logo.bmp
+        run: |
+          convert -size 200x200 xc:black -gravity center \
+            -fill white -font DejaVu-Sans-Bold -pointsize 48 \
+            -annotate 0 'HP' \
+            -type TrueColor -define bmp:format=bmp3 \
+            coreboot/Documentation/coreboot_logo.bmp
+      - name: Toolchain
+        run: |
+          make -C coreboot crossgcc-i386 CPUS="$(nproc)"
+      - name: Patch snappy defconfig SMBIOS
+        run: |
+          set -euo pipefail
+          CFG=$(find coreboot -iname '*snappy*' -name 'config*' | head -n1)
+          echo "cfg=$CFG"
+          test -n "$CFG"
+          {
+            echo 'CONFIG_BIOS_VENDOR="coreboot"'
+            echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="HP"'
+            echo 'CONFIG_MAINBOARD_SMBIOS_PRODUCT_NAME="HP 14 Special"'
+            echo 'CONFIG_LOCALVERSION="hp-special"'
+          } >> "$CFG"
+      - name: build-uefi.sh snappy
+        run: |
+          mkdir -p "$HOME/dev/roms"
+          cd coreboot
+          ./build-uefi.sh snappy
+          ls -l "$HOME/dev/roms" ./coreboot_edk2-snappy*.rom build/coreboot.rom 2>/dev/null || true
+          ROM=$(ls -1 "$HOME/dev/roms"/*snappy*.rom ./coreboot_edk2-snappy*.rom build/coreboot.rom 2>/dev/null | head -n1)
+          test -n "$ROM"
+          cp "$ROM" "$GITHUB_WORKSPACE/snappy-coreboot-hp-special.rom"
+          echo "size=$(stat -c '%s' "$GITHUB_WORKSPACE/snappy-coreboot-hp-special.rom")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-coreboot-hp-special
+          path: snappy-coreboot-hp-special.rom
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-coreboot-hp-${{ github.run_id }}
+          prerelease: true
+          name: SNAPPY coreboot rebuild (HP strings + mark)
+          body: |
+            Rebuilt MrChromebox coreboot for snappy.
+            SMBIOS manufacturer HP, product "HP 14 Special".
+            Documentation/coreboot_logo.bmp is an HP mark.
+            Payload is still MrChromebox edk2 (grey Tianocore setup).
+            Not official HP EliteBook firmware. Not a disguise for sealing/resale.
+          files: snappy-coreboot-hp-special.rom
