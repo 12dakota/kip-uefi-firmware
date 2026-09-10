@@ -53,7 +53,38 @@ jobs:
           cbfstool snappy-logo.rom add -f splash.bmp -n "$NAME" -t raw
           cbfstool snappy-logo.rom print
           test "$(stat -c '%s' snappy-logo.rom)" -eq "$(stat -c '%s' snappy-stock.rom)"
-          echo "a304337-style: only $NAME replaced. Payload stock." > README-SNAPPY.txt
+          python3 - <<'PY'
+          data = bytearray(open("snappy-logo.rom", "rb").read())
+
+          def repl_cstr(old, new, limit=6):
+              needle = old + b"\x00"
+              if len(new) > len(old):
+                  print("skip long", old, "need", len(new), "have", len(old))
+                  return
+              if data.count(needle) > 24:
+                  print("skip many", old, data.count(needle))
+                  return
+              pad = new + b"\x00" * (len(old) - len(new))
+              n = 0
+              start = 0
+              while n < limit:
+                  i = data.find(needle, start)
+                  if i < 0:
+                      break
+                  data[i:i+len(old)] = pad
+                  n += 1
+                  start = i + len(needle)
+              print("replaced", old, "->", new, "x", n)
+
+          repl_cstr(b"Google", b"HP")
+          product = b"Chromebook 14 G5"
+          for cand in (b"Google Snappy", b"HP Chromebook 14 G5", b"Chromebook 14 G5"):
+              if len(cand) >= len(product):
+                  repl_cstr(cand, product)
+          print("Snappy (6) cannot hold Chromebook 14 G5 (16)")
+          open("snappy-logo.rom", "wb").write(data)
+          PY
+          echo "Logo + Google->HP C-string. Product 14 G5 only if a long slot exists." > README-SNAPPY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: snappy-logo-EXPERIMENTAL
