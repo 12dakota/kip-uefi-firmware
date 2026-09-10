@@ -1,0 +1,28 @@
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = BanonElanPointerDxe
+  FILE_GUID                      = BA10B000-CB35-4E10-A15C-00C0FFEE0BA0
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = BanonElanPointerEntry
+
+[Sources]
+  BanonElanPointerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  DebugLib
+  BaseMemoryLib
+  PciLib
+
+[Protocols]
+  gEfiSimplePointerProtocolGuid
+
+[Depex]
+  TRUE

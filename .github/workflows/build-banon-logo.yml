@@ -1,0 +1,73 @@
+# BANON flavor: official MrChromebox Full ROM + optional HP mark.
+# BANON = Acer Chromebook 15 CB3-532 (Braswell). Not SNAPPY. Not KIP.
+name: BANON Full ROM + logo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  banon-logo:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
+            pkg-config python-is-python3 git imagemagick wget
+      - name: Official banon ROM
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+          bash download-fullrom.sh -o roms banon || bash download-fullrom.sh -o roms BANON
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" banon-stock.rom
+      - name: cbfstool
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+      - name: Logo
+        run: |
+          set -euo pipefail
+          NAME='Documentation/coreboot_logo.bmp'
+          cp banon-stock.rom banon-logo.rom
+          W=200; H=200
+          if cbfstool banon-logo.rom extract -n "$NAME" -f old.bmp; then
+            WH=$(identify -format '%w %h' old.bmp 2>/dev/null || true)
+            if [ -n "$WH" ]; then W=$(echo "$WH" | awk '{print $1}'); H=$(echo "$WH" | awk '{print $2}'); fi
+          fi
+          if [ -f assets/hp-logo.png ]; then
+            convert assets/hp-logo.png -resize "${W}x${H}" -background black \
+              -gravity center -extent "${W}x${H}" -type TrueColor -define bmp:format=bmp3 splash.bmp
+          else
+            convert -size "${W}x${H}" xc:black -gravity center -fill white \
+              -annotate 0 'HP' -type TrueColor -define bmp:format=bmp3 splash.bmp
+          fi
+          cbfstool banon-logo.rom remove -n "$NAME" || true
+          cbfstool banon-logo.rom add -f splash.bmp -n "$NAME" -t raw
+          test "$(stat -c '%s' banon-logo.rom)" -eq "$(stat -c '%s' banon-stock.rom)"
+          echo "BANON flavor. Official payload. USB mouse in setup if UsbMouseDxe present." > README-BANON.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: banon-logo
+          path: |
+            banon-logo.rom
+            banon-stock.rom
+            README-BANON.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: banon-logo-${{ github.run_id }}
+          prerelease: true
+          name: BANON official Full ROM + logo
+          body: Acer CB3-532 / BANON. Official MrChromebox payload. Not SNAPPY.
+          files: |
+            banon-logo.rom
+            banon-stock.rom
+            README-BANON.txt
