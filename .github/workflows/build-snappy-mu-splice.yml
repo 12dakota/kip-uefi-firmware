@@ -1,0 +1,136 @@
+# SNAPPY (Apollo Lake) official Full ROM + COREBOOT UefiPayload splice.
+# Payload: tianocore UefiPayloadPkg + Mu PACKAGES_PATH. Not FrontPage.
+# Do not flash this on kip. Do not flash kip ROMs on SNAPPY.
+name: SNAPPY coreboot + Mu payload splice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stock-snappy-rom:
+    name: Download MrChromebox snappy Full ROM
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fetch download-fullrom.sh
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+      - name: Download snappy ROM
+        run: |
+          bash download-fullrom.sh -o roms snappy || bash download-fullrom.sh -o roms SNAPPY
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" snappy-stock.rom
+          echo "size=$(stat -c '%s' snappy-stock.rom)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-stock-SAFE-FLASH
+          path: snappy-stock.rom
+
+  mu-payload:
+    name: Build COREBOOT UefiPayload (Mu on PACKAGES_PATH)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev iasl nasm python3 \
+            python-is-python3 gcc-multilib uuid-runtime
+      - name: Clone Project Mu
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_basecore.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_plus.git
+          git clone --depth 1 --recurse-submodules https://github.com/microsoft/mu_tiano_plus.git
+      - name: Clone tianocore UefiPayloadPkg (Mu has no COREBOOT payload package)
+        uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2
+          path: edk2
+          fetch-depth: 1
+          submodules: recursive
+      - name: Build payload
+        run: |
+          make -C edk2/BaseTools
+          export PACKAGES_PATH="$GITHUB_WORKSPACE/mu_basecore:$GITHUB_WORKSPACE/mu_plus:$GITHUB_WORKSPACE/mu_tiano_plus:$GITHUB_WORKSPACE/edk2"
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          if [ ! -f "$DSC" ]; then DSC=UefiPayloadPkg/UefiPayloadPkg.dsc; fi
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+          ls -l "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+          path: UEFIPAYLOAD.fd
+
+  splice:
+    name: LZMA splice into SNAPPY ROM
+    needs: [stock-snappy-rom, mu-payload]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
+            pkg-config python-is-python3
+      - uses: actions/download-artifact@v4
+        with:
+          name: snappy-stock-SAFE-FLASH
+      - uses: actions/download-artifact@v4
+        with:
+          name: UEFIPAYLOAD-fd-NOT-A-ROM
+      - name: Build cbfstool
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+      - name: Splice
+        run: |
+          set -euo pipefail
+          STOCK=$(stat -c '%s' snappy-stock.rom)
+          cp snappy-stock.rom EXPERIMENTAL-snappy-coreboot-mu.rom
+          cbfstool EXPERIMENTAL-snappy-coreboot-mu.rom print || true
+          cbfstool EXPERIMENTAL-snappy-coreboot-mu.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-snappy-coreboot-mu.rom add-payload \
+            -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          cbfstool EXPERIMENTAL-snappy-coreboot-mu.rom print
+          SZ=$(stat -c '%s' EXPERIMENTAL-snappy-coreboot-mu.rom)
+          echo "stock=$STOCK out=$SZ"
+          test "$SZ" -eq "$STOCK"
+          printf '%s\n' \
+            "EXPERIMENTAL SNAPPY (Apollo Lake)." \
+            "coreboot wrapper + tianocore UefiPayload (Mu PACKAGES_PATH)." \
+            "Not Project Mu FrontPage. Restore with snappy-stock.rom." \
+            > README-FLASH.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EXPERIMENTAL-snappy-coreboot-mu-rom
+          path: |
+            EXPERIMENTAL-snappy-coreboot-mu.rom
+            README-FLASH.txt
+            UEFIPAYLOAD.fd
+            snappy-stock.rom
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-coreboot-mu-${{ github.run_id }}
+          name: SNAPPY coreboot + UEFI payload splice (prerelease)
+          prerelease: true
+          body: |
+            Experimental SNAPPY (Apollo Lake N3350)  image.
+            Official MrChromebox wrapper + COREBOOT UefiPayload.fd (tianocore + Mu on PACKAGES_PATH).
+            Not FrontPage. Not for kip. Daily: snappy-stock.rom.
+          files: |
+            EXPERIMENTAL-snappy-coreboot-mu.rom
+            snappy-stock.rom
+            README-FLASH.txt
