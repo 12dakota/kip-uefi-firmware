@@ -31,11 +31,10 @@ jobs:
             -annotate 0 'HP' \
             -type TrueColor -define bmp:format=bmp3 \
             coreboot/Documentation/coreboot_logo.bmp
-      - name: Toolchain
+      - name: Host toolchain (skip crossgcc downloads)
         run: |
-          set -euo pipefail
-          # ftpmirror.gnu.org failed in CI (gmp tarball). Use GNU + kernel mirrors.
-          make -C coreboot crossgcc-i386 CPUS="$(nproc)"             BUILDGCC_OPTIONS="-M https://ftp.gnu.org/gnu --nouse-ada"           || make -C coreboot crossgcc-i386 CPUS="$(nproc)"             BUILDGCC_OPTIONS="-M https://mirrors.kernel.org/gnu --nouse-ada"
+          sudo apt-get install -y gcc-multilib g++-multilib iasl
+      
       - name: Patch snappy defconfig SMBIOS
         run: |
           set -euo pipefail
@@ -43,6 +42,7 @@ jobs:
           echo "cfg=$CFG"
           test -n "$CFG"
           {
+            echo 'CONFIG_ANY_TOOLCHAIN=y'
             echo 'CONFIG_BIOS_VENDOR="coreboot"'
             echo 'CONFIG_MAINBOARD_SMBIOS_MANUFACTURER="HP"'
             echo 'CONFIG_MAINBOARD_SMBIOS_PRODUCT_NAME="Chromebook 14 G5"'
