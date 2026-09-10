@@ -1,4 +1,4 @@
-# Limbo/QEMU PC BIOS. Not a SNAPPY SPI ROM — Limbo cannot run Chromebook firmware.
+# Limbo/QEMU SeaBIOS variants. Not SNAPPY flash.
 name: Limbo SeaBIOS (bios.bin)
 
 on:
@@ -13,26 +13,38 @@ jobs:
     steps:
       - name: Packages
         run: sudo apt-get update && sudo apt-get install -y build-essential gcc-multilib python3
-      - name: Build SeaBIOS
+      - name: Build stock + variant
         run: |
           git clone --depth 1 https://github.com/coreboot/seabios.git
           make -C seabios -j"$(nproc)"
-          test -f seabios/out/bios.bin
           cp seabios/out/bios.bin bios.bin
-          ls -l bios.bin
-          echo "Limbo: Machine -> Import BIOS -> bios.bin. QEMU machine, not SNAPPY flash." > README-LIMBO.txt
+          # Variant: extra banner string via LOCALVERSION
+          printf '%s\n' 'CONFIG_QEMU=y' 'CONFIG_COREBOOT=n' > seabios/.config
+          echo 'CONFIG_DEBUG_LEVEL=1' >> seabios/.config
+          make -C seabios olddefconfig
+          make -C seabios extraversion="-HP14" -j"$(nproc)"
+          cp seabios/out/bios.bin bios-variant.bin
+          ls -l bios.bin bios-variant.bin
+          cat > README-LIMBO.txt << 'R'
+          Limbo PC emulator (QEMU):
+          1. Machine settings -> BIOS / Import custom BIOS
+          2. Use bios.bin (stock SeaBIOS) or bios-variant.bin (same engine, extraversion -HP14)
+          3. Machine type: generic PC. Do not load SNAPPY .rom here.
+          R
       - uses: actions/upload-artifact@v4
         with:
-          name: limbo-seabios
+          name: limbo-seabios-variant
           path: |
             bios.bin
+            bios-variant.bin
             README-LIMBO.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: limbo-seabios-${{ github.run_id }}
           prerelease: true
-          name: Limbo/QEMU SeaBIOS bios.bin
-          body: SeaBIOS for Limbo custom BIOS import. Not snappy Full ROM.
+          name: Limbo SeaBIOS stock + variant
+          body: bios.bin and bios-variant.bin for Limbo custom BIOS. Not Chromebook firmware.
           files: |
             bios.bin
+            bios-variant.bin
             README-LIMBO.txt
