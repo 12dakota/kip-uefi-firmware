@@ -1,0 +1,89 @@
+# Experimental BANON payload that includes BanonElanPointerDxe.
+# Official wrapper. Not daily. USB mouse remains the reliable pointer.
+name: BANON Elan setup DXE splice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib uuid-dev iasl nasm \
+            python3 python-is-python3 zlib1g-dev libssl-dev pkg-config git
+      - name: Official BANON ROM
+        run: |
+          curl -fsSL -o download-fullrom.sh \
+            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
+          chmod +x download-fullrom.sh
+          bash download-fullrom.sh -o roms banon || bash download-fullrom.sh -o roms BANON
+          ROM=$(find roms -type f -name '*.rom' | head -n1)
+          test -n "$ROM"
+          cp "$ROM" banon-stock.rom
+      - name: Payload + BanonElanPointerDxe
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
+          mkdir -p edk2/UefiPayloadPkg/BanonElanPointerDxe
+          cp drivers/BanonElanPointerDxe/BanonElanPointerDxe.c edk2/UefiPayloadPkg/BanonElanPointerDxe/
+          cp drivers/BanonElanPointerDxe/BanonElanPointerDxe.inf edk2/UefiPayloadPkg/BanonElanPointerDxe/
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc; do
+            [ -f "$f" ] || continue
+            grep -q BanonElanPointerDxe "$f" || \
+              echo '  UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf' >> "$f"
+          done
+          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.fdf edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.fdf; do
+            [ -f "$f" ] || continue
+            grep -q BanonElanPointerDxe "$f" || \
+              printf '\nINF  UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf\n' >> "$f"
+          done
+          make -C edk2/BaseTools
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkg.dsc
+          [ -f UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc ] && DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - name: Splice
+        run: |
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot
+          make -C cb/util/cbfstool -j"$(nproc)"
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+          STOCK=$(stat -c '%s' banon-stock.rom)
+          cp banon-stock.rom EXPERIMENTAL-banon-elan-dxe.rom
+          cbfstool EXPERIMENTAL-banon-elan-dxe.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-banon-elan-dxe.rom add-payload -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          test "$(stat -c '%s' EXPERIMENTAL-banon-elan-dxe.rom)" -eq "$STOCK"
+          printf '%s\n' 'BANON experimental. BanonElanPointerDxe in payload.' \
+            'Setup UI is still Tiano. USB mouse fallback.' \
+            'OS identity Acer/CB3-532 is SMBIOS from coreboot, not this DXE.' \
+            'Restore banon-stock.rom if setup misbehaves.' > README-BANON-ELAN.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: banon-elan-dxe
+          path: |
+            EXPERIMENTAL-banon-elan-dxe.rom
+            banon-stock.rom
+            README-BANON-ELAN.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: banon-elan-dxe-${{ github.run_id }}
+          prerelease: true
+          name: BANON Elan setup DXE (experimental)
+          body: BanonElanPointerDxe spliced into official BANON wrapper. Not daily.
+          files: |
+            EXPERIMENTAL-banon-elan-dxe.rom
+            banon-stock.rom
+            README-BANON-ELAN.txt
