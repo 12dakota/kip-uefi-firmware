@@ -1,0 +1,42 @@
+# Pack Coolstar Windows drivers so SNAPPY Elan can work in WinPE / installer.
+name: SNAPPY WinPE Elan driver pack
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Collect Coolstar INFs
+        run: |
+          git clone --depth 1 https://github.com/coolstar/driverinstallers.git
+          mkdir -p pack/crosec pack/i2c pack/elan
+          cp -a driverinstallers/crosec pack/ || true
+          cp -a driverinstallers/gmbusi2c pack/i2c || true
+          cp -a driverinstallers/crostouchpad pack/elan || true
+          find pack -iname '*.inf' | head -50
+          cat > pack/README-WINPE.txt << 'R'
+          SNAPPY / Windows installer touchpad
+          1. Copy this folder to the Windows USB.
+          2. In setup, disk screen -> Load driver -> this folder (recurse).
+          3. Or DISM into boot.wim index 2 and install.wim:
+             dism /Image:mount /Add-Driver /Driver:pack /Recurse
+          Order: Crosec, then I2C, then Elan (ACPI\ELAN0000).
+          UEFI DXE is not used by WinPE.
+          R
+          zip -r snappy-winpe-elan-drivers.zip pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snappy-winpe-elan-drivers
+          path: snappy-winpe-elan-drivers.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snappy-winpe-elan-${{ github.run_id }}
+          prerelease: true
+          name: SNAPPY WinPE Elan / Crosec / I2C driver pack
+          body: Coolstar INFs for Windows setup Load driver / DISM. Not firmware.
+          files: snappy-winpe-elan-drivers.zip
