@@ -21,13 +21,26 @@ jobs:
             python3 python-is-python3 zlib1g-dev libssl-dev pkg-config git
       - name: Official BANON ROM
         run: |
-          curl -fsSL -o download-fullrom.sh \
-            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
-          chmod +x download-fullrom.sh
-          bash download-fullrom.sh -o roms banon || bash download-fullrom.sh -o roms BANON
-          ROM=$(find roms -type f -name '*.rom' | head -n1)
-          test -n "$ROM"
-          cp "$ROM" banon-stock.rom
+          set -euo pipefail
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+          BASE='https://www.mrchromebox.tech/files/firmware/full_rom'
+          mkdir -p roms
+          ok=
+          for URL in \
+            "$BASE/MrChromebox-2606.1/coreboot_edk2-banon-mrchromebox_20260714.rom" \
+            "$BASE/coreboot_edk2-banon-mrchromebox_20260714.rom" \
+            "$BASE/MrChromebox-2606.1/coreboot_edk2-BANON-mrchromebox_20260714.rom"
+          do
+            echo "GET $URL"
+            if curl -fL --retry 3 -A "$UA" -o roms/banon.rom "$URL"; then
+              ok=1
+              break
+            fi
+          done
+          test -n "$ok"
+          test -s roms/banon.rom
+          cp roms/banon.rom banon-stock.rom
+          ls -l banon-stock.rom
       - name: Payload + BanonElanPointerDxe
         run: |
           git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
