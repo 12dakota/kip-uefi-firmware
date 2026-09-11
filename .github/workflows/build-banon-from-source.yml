@@ -23,7 +23,9 @@ jobs:
           export PYTHON_COMMAND=python3
       - name: Clone MrChromebox coreboot
         run: |
-          git clone --depth 1 https://github.com/MrChromebox/coreboot.git coreboot
+          git clone --depth 50 https://github.com/MrChromebox/coreboot.git coreboot
+          git -C coreboot fetch --tags --depth 50 || true
+          git -C coreboot tag -f ci-banon "$(git -C coreboot rev-parse --short HEAD)" || true
           git -C coreboot submodule update --init --checkout --recursive --depth 1 || true
           grep -rl -- '-std=gnu23' coreboot | xargs -r sed -i 's/-std=gnu23/-std=gnu17/g' || true
       - name: Acer splash
