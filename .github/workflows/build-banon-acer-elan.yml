@@ -1,0 +1,136 @@
+# BANON: official wrapper + Acer splash + SMBIOS DXE + Elan pointer DXE.
+name: BANON Acer DMI + Elan DXE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-12 g++-12 gcc-multilib uuid-dev iasl nasm \
+            python3 python-is-python3 zlib1g-dev libssl-dev pkg-config git imagemagick flex bison
+      - name: Official BANON ROM
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+          BASE='https://www.mrchromebox.tech/files/firmware/full_rom'
+          mkdir -p roms
+          ok=
+          for URL in \
+            "$BASE/MrChromebox-2606.1/coreboot_edk2-banon-mrchromebox_20260714.rom" \
+            "$BASE/coreboot_edk2-banon-mrchromebox_20260714.rom"
+          do
+            echo "GET $URL"
+            if curl -fL --retry 3 -A "$UA" -o roms/banon.rom "$URL"; then ok=1; break; fi
+          done
+          test -n "$ok" && test -s roms/banon.rom
+          cp roms/banon.rom banon-stock.rom
+      - name: Payload with SMBIOS + Elan DXE
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
+          mkdir -p edk2/UefiPayloadPkg/BanonElanPointerDxe edk2/UefiPayloadPkg/BanonSmbiosDxe
+          cp drivers/BanonElanPointerDxe/* edk2/UefiPayloadPkg/BanonElanPointerDxe/
+          cp drivers/BanonSmbiosDxe/* edk2/UefiPayloadPkg/BanonSmbiosDxe/
+          python3 - <<'PY'
+          from pathlib import Path
+          infs = [
+            "UefiPayloadPkg/BanonSmbiosDxe/BanonSmbiosDxe.inf",
+            "UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf",
+          ]
+          for name in ["UefiPayloadPkg.dsc", "UefiPayloadPkgIa32X64.dsc"]:
+              p = Path("edk2/UefiPayloadPkg") / name
+              if not p.exists():
+                  continue
+              t = p.read_text()
+              extra = "".join("\n  " + i for i in infs if i not in t)
+              if extra:
+                  p.write_text(t.rstrip() + extra + "\n")
+          for name in ["UefiPayloadPkg.fdf", "UefiPayloadPkgIa32X64.fdf"]:
+              p = Path("edk2/UefiPayloadPkg") / name
+              if not p.exists():
+                  continue
+              t = p.read_text()
+              key = "INF  UefiPayloadPkg/"
+              idx = t.rfind(key)
+              if idx < 0:
+                  raise SystemExit("no INF in " + str(p))
+              nl = t.find("\n", idx)
+              add = ""
+              for i in infs:
+                  if i not in t:
+                      add += "INF  " + i + "\n"
+              t = t[:nl+1] + add + t[nl+1:]
+              p.write_text(t)
+          print("dsc/fdf patched")
+          PY
+          make -C edk2/BaseTools
+          export WORKSPACE="$GITHUB_WORKSPACE/edk2"
+          cd edk2
+          . ./edksetup.sh
+          DSC=UefiPayloadPkg/UefiPayloadPkg.dsc
+          [ -f UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc ] && DSC=UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc
+          build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC5 -D BOOTLOADER=COREBOOT \
+            || build -a IA32 -a X64 -p "$DSC" -b RELEASE -t GCC -D BOOTLOADER=COREBOOT
+          FD=$(find Build -name 'UEFIPAYLOAD.fd' | head -n1)
+          test -n "$FD"
+          cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
+      - name: cbfstool splice + Acer splash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/coreboot/coreboot.git cb
+          git -C cb submodule update --init --depth 1 3rdparty/vboot || true
+          grep -rl -- '-std=gnu23' cb/util | xargs -r sed -i 's/-std=gnu23/-std=gnu17/g' || true
+          make -C cb/util/cbfstool -j"$(nproc)" HOSTCC=gcc-12
+          sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
+          STOCK=$(stat -c '%s' banon-stock.rom)
+          cp banon-stock.rom EXPERIMENTAL-banon-acer-elan.rom
+          cbfstool EXPERIMENTAL-banon-acer-elan.rom remove -n fallback/payload || true
+          cbfstool EXPERIMENTAL-banon-acer-elan.rom add-payload -n fallback/payload -f UEFIPAYLOAD.fd -c lzma
+          NAME='Documentation/coreboot_logo.bmp'
+          W=200; H=200
+          if cbfstool EXPERIMENTAL-banon-acer-elan.rom extract -n "$NAME" -f old.bmp; then
+            WH=$(identify -format '%w %h' old.bmp 2>/dev/null || true)
+            if [ -n "$WH" ]; then W=$(echo "$WH" | awk '{print $1}'); H=$(echo "$WH" | awk '{print $2}'); fi
+          fi
+          SRC=assets/acer-logo.png
+          if [ -f "$SRC" ]; then
+            convert "$SRC" -resize "${W}x${H}" -background black -gravity center \
+              -extent "${W}x${H}" -type TrueColor -define bmp:format=bmp3 splash.bmp
+          else
+            convert -size "${W}x${H}" xc:black -gravity center -fill '#83B81A' \
+              -pointsize 36 -annotate 0 'acer' -type TrueColor -define bmp:format=bmp3 splash.bmp
+          fi
+          cbfstool EXPERIMENTAL-banon-acer-elan.rom remove -n "$NAME" || true
+          cbfstool EXPERIMENTAL-banon-acer-elan.rom add -f splash.bmp -n "$NAME" -t raw
+          test "$(stat -c '%s' EXPERIMENTAL-banon-acer-elan.rom)" -eq "$STOCK"
+          printf '%s\n' \
+            'BANON experimental: Acer splash + SMBIOS DXE (Acer/CB3-532) + Elan SimplePointer.' \
+            'Payload is rebuilt Tiano, not official MrChromebox EDK2. Keep banon-stock.rom.' \
+            'Flash only on BANON (Acer CB3-532).' > README-BANON-ACER-ELAN.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: banon-acer-elan
+          path: |
+            EXPERIMENTAL-banon-acer-elan.rom
+            banon-stock.rom
+            README-BANON-ACER-ELAN.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: banon-acer-elan-${{ github.run_id }}
+          prerelease: true
+          name: BANON Acer DMI + Elan DXE (experimental)
+          body: Official BANON wrapper. Rebuilt payload with BanonSmbiosDxe + BanonElanPointerDxe + Acer splash.
+          files: |
+            EXPERIMENTAL-banon-acer-elan.rom
+            banon-stock.rom
+            README-BANON-ACER-ELAN.txt
