@@ -47,16 +47,36 @@ jobs:
           mkdir -p edk2/UefiPayloadPkg/BanonElanPointerDxe
           cp drivers/BanonElanPointerDxe/BanonElanPointerDxe.c edk2/UefiPayloadPkg/BanonElanPointerDxe/
           cp drivers/BanonElanPointerDxe/BanonElanPointerDxe.inf edk2/UefiPayloadPkg/BanonElanPointerDxe/
-          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.dsc; do
-            [ -f "$f" ] || continue
-            grep -q BanonElanPointerDxe "$f" || \
-              echo '  UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf' >> "$f"
-          done
-          for f in edk2/UefiPayloadPkg/UefiPayloadPkg.fdf edk2/UefiPayloadPkg/UefiPayloadPkgIa32X64.fdf; do
-            [ -f "$f" ] || continue
-            grep -q BanonElanPointerDxe "$f" || \
-              printf '\nINF  UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf\n' >> "$f"
-          done
+          python3 - <<'PY'
+          from pathlib import Path
+          inf = "UefiPayloadPkg/BanonElanPointerDxe/BanonElanPointerDxe.inf"
+          for name in ["UefiPayloadPkg.dsc", "UefiPayloadPkgIa32X64.dsc"]:
+              p = Path("edk2/UefiPayloadPkg") / name
+              if not p.exists():
+                  continue
+              t = p.read_text()
+              if "BanonElanPointerDxe" in t:
+                  continue
+              # append inside last [Components.*] by adding before EOF if section exists
+              t = t.rstrip() + "\n  " + inf + "\n"
+              p.write_text(t)
+          for name in ["UefiPayloadPkg.fdf", "UefiPayloadPkgIa32X64.fdf"]:
+              p = Path("edk2/UefiPayloadPkg") / name
+              if not p.exists():
+                  continue
+              t = p.read_text()
+              if "BanonElanPointerDxe" in t:
+                  continue
+              line = "INF  " + inf + "\n"
+              key = "INF  UefiPayloadPkg/"
+              idx = t.rfind(key)
+              if idx < 0:
+                  raise SystemExit("no INF UefiPayloadPkg in " + str(p))
+              nl = t.find("\n", idx)
+              t = t[:nl+1] + line + t[nl+1:]
+              p.write_text(t)
+          print("dsc/fdf patched")
+          PY
           make -C edk2/BaseTools
           export WORKSPACE="$GITHUB_WORKSPACE/edk2"
           cd edk2
