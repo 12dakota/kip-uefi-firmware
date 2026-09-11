@@ -36,7 +36,9 @@ jobs:
           cp roms/banon.rom banon-stock.rom
       - name: Payload with SMBIOS + Elan DXE
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          export PYTHON_COMMAND=python3
+          export PYTHON3_ENABLE=TRUE
           git clone --depth 1 --recurse-submodules https://github.com/tianocore/edk2.git
           mkdir -p edk2/UefiPayloadPkg/BanonElanPointerDxe edk2/UefiPayloadPkg/BanonSmbiosDxe
           cp drivers/BanonElanPointerDxe/* edk2/UefiPayloadPkg/BanonElanPointerDxe/
