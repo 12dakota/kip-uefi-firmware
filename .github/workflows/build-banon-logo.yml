@@ -16,22 +16,30 @@ jobs:
       - name: Packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential zlib1g-dev openssl libssl-dev \
-            pkg-config python-is-python3 git imagemagick wget
+          sudo apt-get install -y build-essential gcc-12 g++-12 zlib1g-dev openssl libssl-dev \
+            pkg-config python-is-python3 git imagemagick wget flex bison
       - name: Official banon ROM
         run: |
-          curl -fsSL -o download-fullrom.sh \
-            https://raw.githubusercontent.com/MrChromebox/scripts/main/download-fullrom.sh
-          chmod +x download-fullrom.sh
-          bash download-fullrom.sh -o roms banon || bash download-fullrom.sh -o roms BANON
-          ROM=$(find roms -type f -name '*.rom' | head -n1)
-          test -n "$ROM"
-          cp "$ROM" banon-stock.rom
+          set -euo pipefail
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+          BASE='https://www.mrchromebox.tech/files/firmware/full_rom'
+          mkdir -p roms
+          ok=
+          for URL in \
+            "$BASE/MrChromebox-2606.1/coreboot_edk2-banon-mrchromebox_20260714.rom" \
+            "$BASE/coreboot_edk2-banon-mrchromebox_20260714.rom"
+          do
+            echo "GET $URL"
+            if curl -fL --retry 3 -A "$UA" -o roms/banon.rom "$URL"; then ok=1; break; fi
+          done
+          test -n "$ok" && test -s roms/banon.rom
+          cp roms/banon.rom banon-stock.rom
       - name: cbfstool
         run: |
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
-          git -C cb submodule update --init --depth 1 3rdparty/vboot
-          make -C cb/util/cbfstool -j"$(nproc)"
+          git -C cb submodule update --init --depth 1 3rdparty/vboot || true
+          grep -rl -- '-std=gnu23' cb/util | xargs -r sed -i 's/-std=gnu23/-std=gnu17/g' || true
+          make -C cb/util/cbfstool -j"$(nproc)" HOSTCC=gcc-12
           sudo cp cb/util/cbfstool/cbfstool /usr/local/bin/
       - name: Logo
         run: |
