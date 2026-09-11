@@ -33,30 +33,20 @@ jobs:
           cp "$FD" "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd"
       - name: coreboot QEMU board
         run: |
+          set -euo pipefail
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
           git -C cb submodule update --init --depth 1 3rdparty/vboot || true
-          mkdir -p cb/payloads
-          cp UEFIPAYLOAD.fd cb/payloads/UEFIPAYLOAD.fd
-          printf '%s\n' \
-            'CONFIG_BOARD_EMULATION_QEMU_X86_I440FX=y' \
-            'CONFIG_ANY_TOOLCHAIN=y' \
-            'CONFIG_PAYLOAD_ELF=y' \
-            'CONFIG_PAYLOAD_FILE="payloads/UEFIPAYLOAD.fd"' \
-            'CONFIG_COMPRESSED_PAYLOAD_LZMA=y' \
-            > cb/.config
-          find cb -name 'Makefile.mk' -print0 | xargs -0 sed -i 's/-std=gnu23/-std=gnu2x/g' || true
-          make -C cb olddefconfig
-          # Ubuntu 22.04 gcc 11 has no -std=gnu23
-          make -C cb -j"$(nproc)" HOSTCC=gcc-12 CC=gcc-12
+          find cb/util -name 'Makefile.mk' -print0 | xargs -0 sed -i 's/-std=gnu23/-std=gnu2x/g' || true
+          printf '%s\n' 'CONFIG_BOARD_EMULATION_QEMU_X86_I440FX=y' 'CONFIG_ANY_TOOLCHAIN=y' 'CONFIG_PAYLOAD_NONE=y' > cb/.config
+          make -C cb olddefconfig HOSTCC=gcc-12
+          make -C cb -j"$(nproc)" HOSTCC=gcc-12
           test -f cb/build/coreboot.rom
+          make -C cb/util/cbfstool HOSTCC=gcc-12 || make -C cb/util/cbfstool
+          cb/util/cbfstool/cbfstool cb/build/coreboot.rom add-payload -f "$GITHUB_WORKSPACE/UEFIPAYLOAD.fd" -n fallback/payload -c lzma
           cp cb/build/coreboot.rom limbo-coreboot.rom
           cp cb/build/coreboot.rom bios.bin
           ls -l limbo-coreboot.rom
-          printf '%s\n' \
-            'Limbo: Machine type Generic / i440fx-like.' \
-            'Import bios.bin or limbo-coreboot.rom as the BIOS file.' \
-            'coreboot + Tianocore UefiPayload. Not SeaBIOS.' \
-            'Not SNAPPY/BANON flash.' > README-LIMBO-COREBOOT.txt
+          echo "Limbo i440fx coreboot+UEFI. Not SeaBIOS. Not SNAPPY." > README-LIMBO-COREBOOT.txt
       - uses: actions/upload-artifact@v4
         with:
           name: limbo-coreboot-qemu
