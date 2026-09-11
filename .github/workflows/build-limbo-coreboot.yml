@@ -45,16 +45,24 @@ jobs:
             'CONFIG_COMPRESSED_PAYLOAD_LZMA=y' \
             > cb/.config
           make -C cb olddefconfig
-          make -C cb -j"$(nproc)"
+          # Ubuntu 22.04 gcc 11 has no -std=gnu23
+          make -C cb -j"$(nproc)" HOSTCC='gcc -std=gnu2x' CC='gcc -std=gnu2x' || \
+            make -C cb -j"$(nproc)" CFLAGS='-std=gnu2x' HOSTCFLAGS='-std=gnu2x'
           test -f cb/build/coreboot.rom
           cp cb/build/coreboot.rom limbo-coreboot.rom
+          cp cb/build/coreboot.rom bios.bin
           ls -l limbo-coreboot.rom
-          echo "Limbo: generic PC, import limbo-coreboot.rom as BIOS. Not a SNAPPY image." > README-LIMBO-COREBOOT.txt
+          printf '%s\n' \
+            'Limbo: Machine type Generic / i440fx-like.' \
+            'Import bios.bin or limbo-coreboot.rom as the BIOS file.' \
+            'coreboot + Tianocore UefiPayload. Not SeaBIOS.' \
+            'Not SNAPPY/BANON flash.' > README-LIMBO-COREBOOT.txt
       - uses: actions/upload-artifact@v4
         with:
           name: limbo-coreboot-qemu
           path: |
             limbo-coreboot.rom
+            bios.bin
             UEFIPAYLOAD.fd
             README-LIMBO-COREBOOT.txt
       - uses: softprops/action-gh-release@v2
@@ -65,4 +73,5 @@ jobs:
           body: coreboot emulation/qemu i440fx + Tianocore UefiPayload. Import as Limbo BIOS. Not SeaBIOS. Not SNAPPY.
           files: |
             limbo-coreboot.rom
+            bios.bin
             README-LIMBO-COREBOOT.txt
