@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           git clone --depth 1 https://github.com/coreboot/coreboot.git cb
           git -C cb submodule update --init --depth 1 3rdparty/vboot || true
-          find cb/util -name 'Makefile.mk' -print0 | xargs -0 sed -i 's/-std=gnu23/-std=gnu2x/g' || true
+          grep -rl -- '-std=gnu23' cb | xargs -r sed -i 's/-std=gnu23/-std=gnu17/g' || true
           printf '%s\n' 'CONFIG_BOARD_EMULATION_QEMU_X86_I440FX=y' 'CONFIG_ANY_TOOLCHAIN=y' 'CONFIG_PAYLOAD_NONE=y' > cb/.config
           make -C cb olddefconfig HOSTCC=gcc-12
           make -C cb -j"$(nproc)" HOSTCC=gcc-12
