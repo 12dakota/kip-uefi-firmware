@@ -28,6 +28,16 @@ jobs:
           git -C coreboot tag -f ci-banon "$(git -C coreboot rev-parse --short HEAD)" || true
           git -C coreboot submodule update --init --checkout --recursive --depth 1 || true
           grep -rl -- '-std=gnu23' coreboot | xargs -r sed -i 's/-std=gnu23/-std=gnu17/g' || true
+          # MrChromebox chromeec -Werror format on this gcc
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("coreboot/src/ec/google/chromeec/ec_sync.c")
+          if p.exists():
+              t = p.read_text()
+              t = t.replace("%lx", "%zd")
+              p.write_text(t)
+              print("patched ec_sync.c")
+          PY
       - name: Acer splash
         run: |
           if [ -f assets/acer-logo.png ]; then
