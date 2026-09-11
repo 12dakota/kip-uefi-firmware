@@ -112,11 +112,22 @@ jobs:
           export PYTHON_COMMAND=python3
           mkdir -p "$HOME/dev/roms"
           cd coreboot
-          ./build-uefi.sh banon || ./build-uefi.sh BANON
-          ROM=$(ls -1 "$HOME/dev/roms"/*banon*.rom "$HOME/dev/roms"/*BANON*.rom \
-            ./coreboot_edk2-banon*.rom build/coreboot.rom 2>/dev/null | head -n1)
-          test -n "$ROM"
+          ./build-uefi.sh banon || ./build-uefi.sh BANON || true
+          ROM=""
+          for c in \
+            build/coreboot.rom \
+            ./coreboot_edk2-banon-mrchromebox*.rom \
+            "$HOME/dev/roms/coreboot_edk2-banon-mrchromebox.rom" \
+            "$HOME/dev/roms"/coreboot_edk2-banon*.rom
+          do
+            if [ -f "$c" ]; then ROM="$c"; break; fi
+          done
+          # globs
+          ROM=$(find "$HOME/dev/roms" build . -maxdepth 2 -name '*banon*.rom' -o -name 'coreboot.rom' 2>/dev/null | head -n1)
+          echo "ROM=$ROM"
+          test -n "$ROM" && test -f "$ROM"
           cp "$ROM" "$GITHUB_WORKSPACE/banon-from-source.rom"
+          ls -l "$GITHUB_WORKSPACE/banon-from-source.rom"
       - name: Splice DXE payload + keep splash
         run: |
           set -euo pipefail
